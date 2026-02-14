@@ -15,24 +15,37 @@ import torch.distributed as dist
 # ---------------------------------------------------------------------------
 
 def init_reference(rank: int, world_size: int) -> None:
-    """Initialize torch.distributed with NCCL for reference backend."""
+    """Initialize torch.distributed for reference backend.
+
+    - If CUDA is available: uses NCCL and binds each rank to a GPU.
+    - If CUDA is NOT available (e.g. local Mac dev): uses GLOO on CPU so scripts can run.
+    """
     os.environ["MASTER_ADDR"] = os.environ.get("MASTER_ADDR", "127.0.0.1")
     os.environ["MASTER_PORT"] = os.environ.get("MASTER_PORT", "29500")
     os.environ["RANK"] = str(rank)
     os.environ["LOCAL_RANK"] = str(rank)
     os.environ["WORLD_SIZE"] = str(world_size)
-    torch.cuda.set_device(rank)
-    try:
+    if torch.cuda.is_available():
+        torch.cuda.set_device(rank)
+        try:
+            dist.init_process_group(
+                backend="nccl",
+                init_method="env://",
+                rank=rank,
+                world_size=world_size,
+                device_id=torch.device("cuda", rank),
+            )
+        except TypeError:
+            dist.init_process_group(
+                backend="nccl",
+                init_method="env://",
+                rank=rank,
+                world_size=world_size,
+            )
+    else:
+        # CPU-only fallback for local development.
         dist.init_process_group(
-            backend="nccl",
-            init_method="env://",
-            rank=rank,
-            world_size=world_size,
-            device_id=torch.device("cuda", rank),
-        )
-    except TypeError:
-        dist.init_process_group(
-            backend="nccl",
+            backend="gloo",
             init_method="env://",
             rank=rank,
             world_size=world_size,

@@ -17,27 +17,40 @@
     </header>
 
     <main class="main">
-      <div class="messages" id="messages" role="log" aria-live="polite">
-        <div class="message message--assistant" data-role="welcome">
-          <div class="message__bubble">
-            <p>Ask about problems, NVSHMEM, Modal runs, MoE, or how to train models faster.</p>
+      <div class="workspace">
+        <section class="chat">
+          <div class="messages" id="messages" role="log" aria-live="polite">
+            <div class="message message--assistant" data-role="welcome">
+              <div class="message__bubble">
+                <p>Ask about problems, NVSHMEM, Modal runs, MoE, or how to train models faster.</p>
+                <p>Run live agent loop: <code>/optimize Improve throughput for problem 1 while preserving correctness</code></p>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <form class="input-wrap" id="chatForm" aria-label="Send a message">
-        <textarea
-          class="input"
-          id="input"
-          placeholder="Describe your kernel or training setup…"
-          rows="1"
-          autocomplete="off"
-          aria-label="Message"
-        ></textarea>
-        <button type="submit" class="submit" id="submit" aria-label="Send">
-          <span class="submit__arrow">→</span>
-        </button>
-      </form>
+          <form class="input-wrap" id="chatForm" aria-label="Send a message">
+            <textarea
+              class="input"
+              id="input"
+              placeholder="Describe your kernel or training setup…"
+              rows="1"
+              autocomplete="off"
+              aria-label="Message"
+            ></textarea>
+            <button type="submit" class="submit" id="submit" aria-label="Send">
+              <span class="submit__arrow">→</span>
+            </button>
+          </form>
+        </section>
+
+        <aside class="ide" aria-label="Agent IDE">
+          <div class="ide__header">
+            <div class="ide__title">Agent IDE</div>
+            <div class="ide__meta" id="ideMeta">Waiting for a candidate…</div>
+          </div>
+          <pre class="code-panel" id="codePanel"></pre>
+        </aside>
+      </div>
     </main>
 
     <footer class="footer">

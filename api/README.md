@@ -4,6 +4,7 @@ This API now supports:
 
 - `POST /chat` - GPT-backed kernel optimization chat
 - `POST /optimize` - iterative agent loop for solution improvement
+- `POST /optimize/stream` - live event stream of agent iterations
 
 ## Setup
 
@@ -13,6 +14,10 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 export OPENAI_API_KEY="your_key_here"
+# If you plan to run evaluator on Modal (recommended for Triton backend):
+modal token new
+# Optional but recommended: point to Python with torch installed for evaluator runs
+export FERB_EVAL_PYTHON="/absolute/path/to/python-with-torch"
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -56,4 +61,52 @@ Notes:
 Outputs are saved in:
 
 - `/Users/rohk/FERB/.agent_runs/<run_id>/candidate_iter_<n>.py`
+
+### Real speedup evaluator (recommended)
+
+Use the provided distributed benchmark as evaluator:
+
+```bash
+torchrun --nproc-per-node 8 /Users/rohk/FERB/scripts/benchmark_candidate.py \
+  --problem 1 \
+  --candidate {candidate_path} \
+  --rows 1024 --cols 1024 --dtype float32 \
+  --warmup 3 --iters 10 --score-only
+```
+
+For API usage, pass that whole string as `evaluator_command`.
+
+## `POST /optimize/stream` (live thinking/run events)
+
+This endpoint streams JSON events using Server-Sent Events (SSE), so you can watch:
+
+- run start
+- iteration start
+- candidate generated
+- evaluation start/completed (if evaluator is configured)
+- best update
+- run completed
+
+Example:
+
+```bash
+curl -N -X POST "http://127.0.0.1:8000/optimize/stream" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "objective": "Improve throughput for problem 1 while preserving correctness",
+    "problem_id": 1,
+    "iterations": 3,
+    "model": "gpt-4o-mini"
+  }'
+```
+
+You will receive events like:
+
+```text
+data: {"type":"run_started", ...}
+data: {"type":"iteration_started","iteration":1}
+data: {"type":"candidate_generated","iteration":1,...}
+data: {"type":"best_updated","iteration":1,...}
+data: {"type":"run_completed","result":{...}}
+```
 
