@@ -23,6 +23,13 @@ class EvalConfig:
     measure_iters: int = 10
     profile: bool = True
     download: bool = True
+    # Timeout (seconds) for the local `modal run` subprocess.
+    # If the subprocess doesn't finish in this time it is killed and the
+    # candidate is treated as a failed evaluation (timeout).
+    eval_timeout_s: int = 10 * 60
+    # Timeout forwarded to the Modal worker (--worker-timeout-s flag).
+    # This is the *remote* watchdog inside run_modal.py that kills torchrun.
+    worker_timeout_s: int = 8 * 60
 
 
 @dataclass
@@ -39,7 +46,9 @@ class PromptConfig:
     )
     patch_schema_hint: str = (
         "Return ONLY valid JSON with keys: diagnosis (string[]), "
-        "hypotheses (string[]), proposed_patch (string), test_expectations (string[])."
+        "hypotheses (string[]), candidate_code (string), test_expectations (string[]).\n"
+        "candidate_code must be the COMPLETE rewritten Python source file (not a diff/patch). "
+        "It must define a top-level `solution` function."
     )
     performance_patch_template: str = (
         "Problem: {problem_id}\n"
@@ -54,8 +63,10 @@ class PromptConfig:
         "```python\n"
         "{current_code}\n"
         "```\n\n"
-        "Return a JSON object with diagnosis/hypotheses/proposed_patch/test_expectations.\n"
-        "The proposed_patch should be a unified diff patch against the candidate file.\n"
+        "Return a JSON object with keys: diagnosis (string[]), hypotheses (string[]), "
+        "candidate_code (string), test_expectations (string[]).\n"
+        "candidate_code must be the COMPLETE rewritten Python file (not a diff/patch).\n"
+        "It must define a top-level `solution` function.\n"
     )
     correctness_patch_template: str = (
         "Problem: {problem_id}\n"
@@ -72,8 +83,10 @@ class PromptConfig:
         "```python\n"
         "{current_code}\n"
         "```\n\n"
-        "Return a JSON object with diagnosis/hypotheses/proposed_patch/test_expectations.\n"
-        "The proposed_patch should be a unified diff patch against the candidate file.\n"
+        "Return a JSON object with keys: diagnosis (string[]), hypotheses (string[]), "
+        "candidate_code (string), test_expectations (string[]).\n"
+        "candidate_code must be the COMPLETE rewritten Python file (not a diff/patch).\n"
+        "It must define a top-level `solution` function.\n"
     )
     bootstrap_system_prompt: str = (
         "You are an expert Triton/NVSHMEM kernel engineer. "

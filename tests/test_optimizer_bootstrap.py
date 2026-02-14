@@ -116,8 +116,8 @@ class OptimizerBootstrapTests(unittest.TestCase):
             optimizer.evaluator.precompute_references = Mock()
             optimizer.evaluator.evaluate_pair = Mock(return_value=(reference, candidate))
             optimizer.proposer = Mock()
-            optimizer.proposer.propose = Mock(return_value={"proposed_patch": "--- a\n+++ b\n"})
-            optimizer._apply_patch = Mock()
+            optimizer.proposer.propose = Mock(return_value={"candidate_code": "def solution(x):\n    return x\n"})
+            optimizer._apply_code = Mock()
 
             optimizer.run()
 

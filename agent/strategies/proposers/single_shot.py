@@ -29,6 +29,6 @@ class SingleShotProposer:
         return {
             "diagnosis": proposal.diagnosis,
             "hypotheses": proposal.hypotheses,
-            "proposed_patch": proposal.proposed_patch,
+            "candidate_code": proposal.candidate_code,
             "test_expectations": proposal.test_expectations,
         }

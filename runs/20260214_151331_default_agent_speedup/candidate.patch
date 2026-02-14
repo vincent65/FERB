@@ -1,0 +1,67 @@
+*** Begin Patch
+*** Update File: /Users/vincentyip/programming/FERB/solutions_agent/7_agent.py
+@@
+ @triton.jit
+ def reduce_scatter_atomic_add_kernel(
+     remote_ptr,      # Pointer to remote PE's output buffer (symmetric memory)
+     local_ptr,       # Pointer to local chunk data
+     n_elements: tl.constexpr,
+     BLOCK_SIZE: tl.constexpr,
+ ):
+     pid = tl.program_id(0)
+     offsets = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+     mask = offsets < n_elements
+ 
+     vals = tl.load(local_ptr + offsets, mask=mask)
+     tl.atomic_add(remote_ptr + offsets, vals, mask=mask)
+@@
+ def solution(tensor: torch.Tensor) -> torch.Tensor:
+@@
+-    # Ensure all PEs have zeroed buffers before accumulation
+-    torch.cuda.synchronize()
+-    nvshmem.barrier(nvshmem.Teams.TEAM_NODE, stream_wrapper)
++    # Ensure all PEs have zeroed buffers before accumulation (stream-ordered)
++    nvshmem.barrier(nvshmem.Teams.TEAM_NODE, stream_wrapper)
+@@
+-    BLOCK_SIZE = 512
++    BLOCK_SIZE = 1024
+     grid = (triton.cdiv(chunk_elems, BLOCK_SIZE),)
+ 
+     # For each destination PE, atomically add our local chunk destined for that PE
+     for dest_pe in range(n_pes):
+         # Local slice corresponding to chunk 'dest_pe'
+         start = dest_pe * chunk_elems
+         local_chunk = input_flat[start:start + chunk_elems]
+ 
+-        # Remote view of destination PE's symmetric output buffer
+-        remote_view = nvshmem.get_peer_tensor(out_sym, dest_pe)
+-
+-        # Launch kernel to atomically add into the remote buffer
+-        reduce_scatter_atomic_add_kernel[grid](
+-            remote_view,
+-            local_chunk,
+-            n_elements=chunk_elems,
+-            BLOCK_SIZE=BLOCK_SIZE,
+-        )
++        if dest_pe == my_pe:
++            # Local accumulation: avoid atomics and NVSHMEM for self-target
++            out_sym.add_(local_chunk)
++        else:
++            # Remote view of destination PE's symmetric output buffer
++            remote_view = nvshmem.get_peer_tensor(out_sym, dest_pe)
++
++            # Launch kernel to atomically add into the remote buffer
++            reduce_scatter_atomic_add_kernel[grid](
++                remote_view,
++                local_chunk,
++                n_elements=chunk_elems,
++                BLOCK_SIZE=BLOCK_SIZE,
++                num_warps=8,
++                num_stages=2,
++            )
+ 
+-    # Synchronize to ensure all remote atomics completed
+-    torch.cuda.synchronize()
++    # Stream-ordered barrier ensures all remote atomics completed
+     nvshmem.barrier(nvshmem.Teams.TEAM_NODE, stream_wrapper)
+*** End Patch

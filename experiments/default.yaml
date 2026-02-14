@@ -22,17 +22,25 @@ eval:
   measure_iters: 10
   profile: true
   download: true
+  # Local subprocess timeout (seconds). If `modal run` doesn't finish in
+  # this time, the process is killed and the candidate is marked as failed.
+  eval_timeout_s: 600
+  # Remote worker watchdog (seconds). Forwarded as --worker-timeout-s to
+  # run_modal.py so torchrun is killed if the distributed job hangs.
+  worker_timeout_s: 480
 
 openai:
   model: gpt-5
-  
+
 prompts:
   patch_system_prompt: >
     You are an expert Triton/NVSHMEM performance engineer.
     Suggest concrete code patches grounded in profiling and timing data.
   patch_schema_hint: >
     Return ONLY valid JSON with keys: diagnosis (string[]), hypotheses (string[]),
-    proposed_patch (string), test_expectations (string[]).
+    candidate_code (string), test_expectations (string[]).
+    candidate_code must be the COMPLETE rewritten Python source file (not a diff/patch).
+    It must define a top-level `solution` function.
   performance_patch_template: |
     Problem: {problem_id}
     Candidate file: {candidate_file}
@@ -49,8 +57,10 @@ prompts:
     {current_code}
     ```
 
-    Return a JSON object with diagnosis/hypotheses/proposed_patch/test_expectations.
-    The proposed_patch should be a unified diff patch against the candidate file.
+    Return a JSON object with keys: diagnosis (string[]), hypotheses (string[]),
+    candidate_code (string), test_expectations (string[]).
+    candidate_code must be the COMPLETE rewritten Python file (not a diff/patch).
+    It must define a top-level `solution` function.
   correctness_patch_template: |
     Problem: {problem_id}
     Candidate file: {candidate_file}
@@ -70,8 +80,10 @@ prompts:
     {current_code}
     ```
 
-    Return a JSON object with diagnosis/hypotheses/proposed_patch/test_expectations.
-    The proposed_patch should be a unified diff patch against the candidate file.
+    Return a JSON object with keys: diagnosis (string[]), hypotheses (string[]),
+    candidate_code (string), test_expectations (string[]).
+    candidate_code must be the COMPLETE rewritten Python file (not a diff/patch).
+    It must define a top-level `solution` function.
   bootstrap_system_prompt: >
     You are an expert Triton/NVSHMEM kernel engineer.
     Generate a correct optimization-ready Triton candidate from a reference implementation.

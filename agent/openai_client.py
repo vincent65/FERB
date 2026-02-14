@@ -11,8 +11,14 @@ from openai import OpenAI
 class PatchProposal:
     diagnosis: list[str]
     hypotheses: list[str]
-    proposed_patch: str
+    candidate_code: str          # Complete rewritten file content
     test_expectations: list[str]
+
+    # Backward-compat alias so callers using .proposed_patch still work
+    # during transition.
+    @property
+    def proposed_patch(self) -> str:
+        return self.candidate_code
 
 
 class OpenAIPatchClient:
@@ -36,11 +42,13 @@ class OpenAIPatchClient:
 
         self.patch_system_prompt = patch_system_prompt or (
             "You are an expert Triton/NVSHMEM performance engineer. "
-            "Suggest concrete code patches grounded in profiling and timing data."
+            "Suggest concrete code improvements grounded in profiling and timing data."
         )
         self.patch_schema_hint = patch_schema_hint or (
             "Return ONLY valid JSON with keys: diagnosis (string[]), "
-            "hypotheses (string[]), proposed_patch (string), test_expectations (string[])."
+            "hypotheses (string[]), candidate_code (string), test_expectations (string[]).\n"
+            "candidate_code must be the COMPLETE rewritten Python source file (not a diff/patch). "
+            "It must define a top-level `solution` function."
         )
         self.bootstrap_system_prompt = bootstrap_system_prompt or (
             "You are an expert Triton/NVSHMEM kernel engineer. "
@@ -70,11 +78,19 @@ class OpenAIPatchClient:
         )
 
         text = response.output_text.strip()
+        # Strip markdown fences if the model wrapped JSON in ```json ... ```
+        text = self._strip_code_fences(text)
         data: dict[str, Any] = json.loads(text)
+
+        # Accept either "candidate_code" (new) or "proposed_patch" (legacy).
+        candidate_code = str(
+            data.get("candidate_code", data.get("proposed_patch", ""))
+        )
+
         return PatchProposal(
             diagnosis=list(data.get("diagnosis", [])),
             hypotheses=list(data.get("hypotheses", [])),
-            proposed_patch=str(data.get("proposed_patch", "")),
+            candidate_code=candidate_code,
             test_expectations=list(data.get("test_expectations", [])),
         )
 

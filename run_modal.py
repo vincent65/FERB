@@ -16,6 +16,7 @@ The script will:
 import modal
 import os
 import shutil
+import time
 
 # ---------------------------------------------------------------------------
 # Modal App & Image Setup
@@ -78,8 +79,12 @@ def run_distributed_eval(
     m: int = 1024,
     n: int = 1024,
     dtype: str = "float32",
+    warmup_iters: int = 3,
+    measure_iters: int = 10,
+    profile: bool = True,
     save_outputs: bool = True,
     use_cached_reference: bool = False,
+    worker_timeout_s: int = 20 * 60,
 ) -> dict:
     """
     Run distributed evaluation on 8 H100 GPUs.
@@ -109,6 +114,7 @@ def run_distributed_eval(
     print(f"Shape:   ({m}, {n}), dtype={dtype}")
     print(f"GPUs:    {8}")
     print(f"Backend: {solution_type}")
+    print(f"Warmup:  {warmup_iters}, Measure: {measure_iters}, Profile: {profile}")
     print("-" * 60)
 
     # Ensure logs directory exists
@@ -129,6 +135,9 @@ def run_distributed_eval(
         "--cols", str(n),
         "--dtype", dtype,
         "--problem_id", str(problem_id),
+        "--warmup_iters", str(warmup_iters),
+        "--measure_iters", str(measure_iters),
+        "--profile" if profile else "--no-profile",
         "--save_outputs" if save_outputs else "--no-save_outputs",
     ]
     if use_cached_reference and solution_type != "reference":
@@ -146,14 +155,26 @@ def run_distributed_eval(
             ]
         )
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # Let subprocess inherit stdout/stderr so logs stream live in Modal logs.
+    print(f"Executing worker command: {' '.join(cmd)}", flush=True)
+    start = time.monotonic()
+    try:
+        result = subprocess.run(
+            cmd,
+            check=False,
+            timeout=worker_timeout_s,
+        )
+    except subprocess.TimeoutExpired as exc:
+        elapsed = time.monotonic() - start
+        raise TimeoutError(
+            f"Worker exceeded timeout of {worker_timeout_s}s after {elapsed:.1f}s "
+            f"(problem={problem_id}, solution={solution_type})"
+        ) from exc
+
+    elapsed = time.monotonic() - start
+    print(f"Worker finished in {elapsed:.1f}s with exit code {result.returncode}", flush=True)
     if result.returncode != 0:
-        print("STDOUT:", result.stdout)
-        if result.stderr:
-            print("STDERR:", result.stderr)
-        print(f"Worker exited with code {result.returncode}")
-    elif result.stderr:
-        print("STDERR:", result.stderr)
+        raise RuntimeError(f"Worker exited with code {result.returncode}")
     
     # Commit volume changes
     volume.commit()
@@ -209,9 +230,13 @@ def main(
     m: int = 1024,                  # TODO: m and n are how you currently sweep dimensions, want to refactor later
     n: int = 1024,
     dtype: str = "float32",
+    warmup_iters: int = 3,
+    measure_iters: int = 10,
+    profile: bool = True,
     download: bool = True,
     save_outputs: bool = True,
     use_cached_reference: bool = False,
+    worker_timeout_s: int = 20 * 60,
 ):
     """
     Run distributed kernel evaluation on Modal.
@@ -226,6 +251,9 @@ def main(
     print(f"  Solution: {solution}")
     print(f"  Shape:    ({m}, {n})")
     print(f"  Dtype:    {dtype}")
+    print(f"  Warmup:   {warmup_iters}")
+    print(f"  Measure:  {measure_iters}")
+    print(f"  Profile:  {profile}")
     print()
 
     # Run the evaluation
@@ -235,8 +263,12 @@ def main(
         m=m,
         n=n,
         dtype=dtype,
+        warmup_iters=warmup_iters,
+        measure_iters=measure_iters,
+        profile=profile,
         save_outputs=save_outputs,
         use_cached_reference=use_cached_reference,
+        worker_timeout_s=worker_timeout_s,
     )
     
     print()
