@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FERB — Kernel Optimization</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="logo">FERB</span>
+      <span class="tagline">Kernel optimization &amp; faster ML training</span>
+    </header>
+
+    <main class="main">
+      <div class="messages" id="messages" role="log" aria-live="polite">
+        <div class="message message--assistant" data-role="welcome">
+          <div class="message__bubble">
+            <p>Ask about problems, NVSHMEM, Modal runs, MoE, or how to train models faster.</p>
+          </div>
+        </div>
+      </div>
+
+      <form class="input-wrap" id="chatForm" aria-label="Send a message">
+        <textarea
+          class="input"
+          id="input"
+          placeholder="Describe your kernel or training setup…"
+          rows="1"
+          autocomplete="off"
+          aria-label="Message"
+        ></textarea>
+        <button type="submit" class="submit" id="submit" aria-label="Send">
+          <span class="submit__arrow">→</span>
+        </button>
+      </form>
+    </main>
+
+    <footer class="footer">
+      <span class="footer__text">Whitespace AI · FERB</span>
+    </footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
