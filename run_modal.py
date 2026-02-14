@@ -10,7 +10,7 @@ Usage:
 The script will:
 1. Spin up 8 H100 GPUs on Modal
 2. Run the distributed evaluation (8 processes, one per GPU)
-3. Download the .pt output files to your local logs/ directory
+3. Download the .pt/.json output files to your local logs/ directory
 """
 
 import modal
@@ -78,6 +78,8 @@ def run_distributed_eval(
     m: int = 1024,
     n: int = 1024,
     dtype: str = "float32",
+    save_outputs: bool = True,
+    use_cached_reference: bool = False,
 ) -> dict:
     """
     Run distributed evaluation on 8 H100 GPUs.
@@ -127,7 +129,23 @@ def run_distributed_eval(
         "--cols", str(n),
         "--dtype", dtype,
         "--problem_id", str(problem_id),
+        "--save_outputs" if save_outputs else "--no-save_outputs",
     ]
+    if use_cached_reference and solution_type != "reference":
+        cached_ref_dir = f"/logs/problem_{problem_id}/reference/reference_outputs"
+        if not os.path.isdir(cached_ref_dir):
+            raise FileNotFoundError(
+                f"Cached reference outputs not found at {cached_ref_dir}. "
+                "Run the reference backend first."
+            )
+        cmd.extend(
+            [
+                "--reference_outputs_dir",
+                cached_ref_dir,
+                "--skip_reference_timing",
+            ]
+        )
+
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print("STDOUT:", result.stdout)
@@ -143,9 +161,10 @@ def run_distributed_eval(
     # List output files
     output_files = []
     if os.path.isdir(logs_dir):
-        for fname in sorted(os.listdir(logs_dir)):
-            if fname.endswith(".pt") or fname.endswith(".json"):
-                output_files.append(os.path.join(logs_dir, fname))
+        for root, _, files in os.walk(logs_dir):
+            for fname in sorted(files):
+                if fname.endswith(".pt") or fname.endswith(".json"):
+                    output_files.append(os.path.join(root, fname))
 
     return {
         "problem_id": problem_id,
@@ -168,11 +187,13 @@ def download_logs(problem_id: str, solution_type: str) -> list[bytes]:
         print(f"No logs found at {logs_dir}")
         return results
     
-    for fname in sorted(os.listdir(logs_dir)):
-        if fname.endswith(".pt") or fname.endswith(".json"):
-            path = os.path.join(logs_dir, fname)
-            with open(path, "rb") as f:
-                results.append((fname, f.read()))
+    for root, _, files in os.walk(logs_dir):
+        for fname in sorted(files):
+            if fname.endswith(".pt") or fname.endswith(".json"):
+                path = os.path.join(root, fname)
+                rel = os.path.relpath(path, logs_dir)
+                with open(path, "rb") as f:
+                    results.append((rel, f.read()))
     
     return results
 
@@ -189,6 +210,8 @@ def main(
     n: int = 1024,
     dtype: str = "float32",
     download: bool = True,
+    save_outputs: bool = True,
+    use_cached_reference: bool = False,
 ):
     """
     Run distributed kernel evaluation on Modal.
@@ -212,6 +235,8 @@ def main(
         m=m,
         n=n,
         dtype=dtype,
+        save_outputs=save_outputs,
+        use_cached_reference=use_cached_reference,
     )
     
     print()
@@ -241,6 +266,7 @@ def main(
         files = download_logs.remote(problem, solution)
         for fname, data in files:
             local_path = os.path.join(local_logs_dir, fname)
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
             with open(local_path, "wb") as f:
                 f.write(data)
             print(f"  Downloaded: {local_path}")

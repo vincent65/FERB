@@ -9,6 +9,11 @@ import os
 import torch
 import json
 
+try:
+    from .problem_specs import get_problem_input_override
+except Exception:  # pragma: no cover - keep utils import-safe
+    get_problem_input_override = None
+
 def save_tensor(output, logs_dir: str, rank: int) -> str:
     """
     Save output tensor(s) to file.
@@ -83,6 +88,22 @@ def create_input_tensor(rank: int, world_size: int, problem_id: int, base_shape:
         dev = device
     
     val = float(rank + 1)
+
+    # Optional override path for irregular/advanced problems.
+    if get_problem_input_override is not None:
+        override_fn = get_problem_input_override(problem_id)
+        if override_fn is not None:
+            result = override_fn(
+                rank=rank,
+                world_size=world_size,
+                problem_id=problem_id,
+                base_shape=base_shape,
+                dtype=dtype,
+                device=dev,
+            )
+            if not isinstance(result, tuple):
+                raise TypeError(f"Override for problem {problem_id} must return a tuple, got {type(result)}")
+            return result
     
     if problem_id in [1, 2, 3, 4, 6]:
         # Standard shape: [M, N] with rank-specific values

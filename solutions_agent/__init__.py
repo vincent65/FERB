@@ -1,0 +1,2 @@
+"""Agent-generated Triton solutions."""
+
