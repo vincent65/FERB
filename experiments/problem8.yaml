@@ -1,0 +1,102 @@
+name: default_agent_speedup
+max_iterations: 3
+early_stop_speedup: 1.5
+seed_from_backend: triton
+candidate_dir: solutions_agent
+run_root: runs
+
+problems:
+  - problem_id: 8
+    rows: 1024
+    cols: 1024
+    dtype: float32
+
+eval:
+  reference_backend: reference
+  candidate_backend: agent
+  warmup_iters: 2
+  measure_iters: 5
+  profile: true
+  download: true
+  eval_timeout_s: 600
+  worker_timeout_s: 480
+
+openai:
+  model: gpt-5
+  temperature: 0.2
+
+prompts:
+  patch_system_prompt: >
+    You are an expert Triton/NVSHMEM performance engineer.
+    Suggest concrete code patches grounded in profiling and timing data.
+  patch_schema_hint: >
+    Return ONLY valid JSON with keys: diagnosis (string[]), hypotheses (string[]),
+    candidate_code (string), test_expectations (string[]).
+    candidate_code must be the COMPLETE rewritten Python source file (not a diff/patch).
+    It must define a top-level `solution` function.
+  performance_patch_template: |
+    Problem: {problem_id}
+    Candidate file: {candidate_file}
+    Mode: performance_optimization
+
+    Recent memory summary:
+    {memory_summary}
+
+    Latest evaluation feedback:
+    {eval_feedback}
+
+    Current candidate code:
+    ```python
+    {current_code}
+    ```
+
+    Return a JSON object with keys: diagnosis (string[]), hypotheses (string[]),
+    candidate_code (string), test_expectations (string[]).
+    candidate_code must be the COMPLETE rewritten Python file (not a diff/patch).
+    It must define a top-level `solution` function.
+  correctness_patch_template: |
+    Problem: {problem_id}
+    Candidate file: {candidate_file}
+    Mode: correctness_fix
+
+    The latest evaluation indicates correctness mismatch. Prioritize correctness first.
+    Only add optimization changes that do not risk output mismatch.
+
+    Recent memory summary:
+    {memory_summary}
+
+    Latest evaluation feedback:
+    {eval_feedback}
+
+    Current candidate code:
+    ```python
+    {current_code}
+    ```
+
+    Return a JSON object with keys: diagnosis (string[]), hypotheses (string[]),
+    candidate_code (string), test_expectations (string[]).
+    candidate_code must be the COMPLETE rewritten Python file (not a diff/patch).
+    It must define a top-level `solution` function.
+  bootstrap_system_prompt: >
+    You are an expert Triton/NVSHMEM kernel engineer.
+    Generate a correct optimization-ready Triton candidate from a reference implementation.
+  bootstrap_template: |
+    You are bootstrapping a brand-new problem.
+    Problem: {problem_id}
+    Output file: {candidate_file}
+
+    Reference implementation:
+    ```python
+    {reference_code}
+    ```
+
+    Solved Triton examples to use as style/context:
+    {context_examples}
+
+    Return ONLY valid JSON with key: candidate_code (string).
+    candidate_code must be a complete Python file that defines `solution`.
+
+strategies:
+  proposer: single_shot
+  memory: best_so_far
+  scorer: speedup_mean

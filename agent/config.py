@@ -113,6 +113,13 @@ class PromptConfig:
 
 
 @dataclass
+class RetrievalConfig:
+    enabled: bool = False
+    top_k: int = 3
+    retrieval_model: str | None = None  # None = use same model as main proposer.
+
+
+@dataclass
 class StrategyConfig:
     proposer: str = "single_shot"
     memory: str = "best_so_far"
@@ -132,6 +139,7 @@ class ExperimentConfig:
     openai: OpenAIConfig = field(default_factory=OpenAIConfig)
     prompts: PromptConfig = field(default_factory=PromptConfig)
     strategies: StrategyConfig = field(default_factory=StrategyConfig)
+    retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
 
     @staticmethod
     def _get(raw: dict[str, Any], key: str, default: Any) -> Any:
@@ -156,6 +164,7 @@ class ExperimentConfig:
                 prompt_raw["performance_patch_template"] = prompt_raw["single_shot_template"]
         prompt_cfg = PromptConfig(**prompt_raw)
         strategy_cfg = StrategyConfig(**cls._get(raw, "strategies", {}))
+        retrieval_cfg = RetrievalConfig(**cls._get(raw, "retrieval", {}))
 
         return cls(
             name=raw["name"],
@@ -169,4 +178,5 @@ class ExperimentConfig:
             openai=openai_cfg,
             prompts=prompt_cfg,
             strategies=strategy_cfg,
+            retrieval=retrieval_cfg,
         )

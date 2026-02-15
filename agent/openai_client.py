@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from openai import OpenAI
+
+if TYPE_CHECKING:
+    from agent.strategies.retrieval.retriever import LLMRetriever
 
 
 @dataclass
@@ -83,6 +86,126 @@ class OpenAIPatchClient:
         data: dict[str, Any] = json.loads(text)
 
         # Accept either "candidate_code" (new) or "proposed_patch" (legacy).
+        candidate_code = str(
+            data.get("candidate_code", data.get("proposed_patch", ""))
+        )
+
+        return PatchProposal(
+            diagnosis=list(data.get("diagnosis", [])),
+            hypotheses=list(data.get("hypotheses", [])),
+            candidate_code=candidate_code,
+            test_expectations=list(data.get("test_expectations", [])),
+        )
+
+    # ------------------------------------------------------------------
+    # Tool-use proposal (RAG retrieval)
+    # ------------------------------------------------------------------
+
+    _SEARCH_EXAMPLES_TOOL: dict[str, Any] = {
+        "type": "function",
+        "name": "search_examples",
+        "description": (
+            "Search the corpus of solved Triton kernel examples for ones relevant "
+            "to your current task.  Returns paired (reference, triton_solution) code "
+            "that you can study for patterns, optimizations, or correctness fixes."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "A natural-language description of what you are looking for. "
+                        "For example: 'Triton kernel that does tiled matrix multiply with "
+                        "shared memory' or 'NVSHMEM all-to-all exchange pattern'."
+                    ),
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Number of examples to retrieve (default 3).",
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    }
+
+    def propose_patch_with_tools(
+        self,
+        prompt: str,
+        retriever: LLMRetriever,
+        *,
+        max_tool_rounds: int = 3,
+    ) -> PatchProposal:
+        """Like :meth:`propose_patch` but gives the model a ``search_examples`` tool.
+
+        The model can call the tool to retrieve relevant solved Triton examples
+        from the corpus.  A lightweight LLM ranker inside *retriever* selects
+        the top-k entries and returns formatted code.
+
+        The conversation loops until the model produces a final text response
+        (the JSON patch proposal) or *max_tool_rounds* tool calls have been
+        handled.
+        """
+        tools = [self._SEARCH_EXAMPLES_TOOL]
+
+        input_messages: list[dict[str, Any]] = [
+            {"role": "system", "content": self.patch_system_prompt},
+            {"role": "user", "content": f"{self.patch_schema_hint}\n\n{prompt}"},
+        ]
+
+        for _round in range(max_tool_rounds + 1):
+            request: dict[str, Any] = {
+                "model": self.model,
+                "input": input_messages,
+                "tools": tools,
+            }
+            if not self.model.startswith("gpt-5"):
+                request["temperature"] = self.temperature
+
+            response = self.client.responses.create(**request)
+
+            # Check whether the model produced tool calls.
+            tool_calls = [
+                item for item in response.output
+                if getattr(item, "type", None) == "function_call"
+            ]
+
+            if not tool_calls:
+                # Model produced a final text answer — parse it.
+                break
+
+            # Process each tool call and append results.
+            for tc in tool_calls:
+                args = json.loads(tc.arguments)
+                query = args.get("query", "")
+                top_k = args.get("top_k")
+                result_text = retriever.retrieve(query, top_k=top_k)
+                # Feed the tool call and its output back into the conversation.
+                input_messages.append(tc.model_dump())
+                input_messages.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": tc.call_id,
+                        "output": result_text,
+                    }
+                )
+        else:
+            # Exhausted tool rounds — make one final call without tools so the
+            # model is forced to produce a text response.
+            request = {
+                "model": self.model,
+                "input": input_messages,
+            }
+            if not self.model.startswith("gpt-5"):
+                request["temperature"] = self.temperature
+            response = self.client.responses.create(**request)
+
+        # Parse the final text response the same way as propose_patch.
+        text = response.output_text.strip()
+        text = self._strip_code_fences(text)
+        data: dict[str, Any] = json.loads(text)
+
         candidate_code = str(
             data.get("candidate_code", data.get("proposed_patch", ""))
         )

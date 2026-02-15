@@ -1,16 +1,26 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 from agent.config import PromptConfig
 from agent.openai_client import OpenAIPatchClient
 from agent.strategies.proposers.base import ProposalContext
 
+if TYPE_CHECKING:
+    from agent.strategies.retrieval.retriever import LLMRetriever
+
 
 class SingleShotProposer:
-    def __init__(self, client: OpenAIPatchClient, prompt_config: PromptConfig):
+    def __init__(
+        self,
+        client: OpenAIPatchClient,
+        prompt_config: PromptConfig,
+        retriever: LLMRetriever | None = None,
+    ):
         self.client = client
         self.prompt_config = prompt_config
+        self.retriever = retriever
 
     def propose(self, ctx: ProposalContext) -> dict:
         template = self.prompt_config.performance_patch_template
@@ -25,7 +35,12 @@ class SingleShotProposer:
             eval_feedback=json.dumps(ctx.eval_feedback, indent=2, default=str),
             current_code=ctx.current_code,
         )
-        proposal = self.client.propose_patch(prompt)
+
+        if self.retriever is not None:
+            proposal = self.client.propose_patch_with_tools(prompt, self.retriever)
+        else:
+            proposal = self.client.propose_patch(prompt)
+
         return {
             "diagnosis": proposal.diagnosis,
             "hypotheses": proposal.hypotheses,

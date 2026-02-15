@@ -16,6 +16,8 @@ from agent.eval.modal_evaluator import ModalEvaluator
 from agent.openai_client import OpenAIPatchClient
 from agent.strategies.proposers.base import ProposalContext
 from agent.strategies.registry import make_memory, make_proposer, make_scorer
+from agent.strategies.retrieval.corpus import TritonCorpus
+from agent.strategies.retrieval.retriever import LLMRetriever
 
 
 @dataclass
@@ -23,15 +25,46 @@ class Optimizer:
     repo_root: Path
     cfg: ExperimentConfig
 
+    _RAG_SYSTEM_PROMPT_HINT: str = (
+        "\nYou have access to a `search_examples` tool that retrieves relevant "
+        "solved Triton kernel examples (paired reference + optimized solution). "
+        "Call it when you want to see how similar kernels were written or optimized."
+    )
+
     def __post_init__(self) -> None:
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.run_dir = self.repo_root / self.cfg.run_root / f"{now}_{self.cfg.name}"
         self.logger = RunLogger(self.run_dir)
         self.evaluator = ModalEvaluator(self.repo_root, self.cfg.eval)
+
+        # -- Optional RAG retrieval --
+        retriever = None
+        patch_system_prompt = self.cfg.prompts.patch_system_prompt
+        if self.cfg.retrieval.enabled:
+            corpus = TritonCorpus(
+                self.repo_root,
+                seed_from_backend=self.cfg.seed_from_backend,
+            )
+            retrieval_model = (
+                self.cfg.retrieval.retrieval_model or self.cfg.openai.model
+            )
+            retriever = LLMRetriever(
+                corpus,
+                model=retrieval_model,
+                default_top_k=self.cfg.retrieval.top_k,
+            )
+            # Augment the system prompt so the model knows the tool exists.
+            patch_system_prompt += self._RAG_SYSTEM_PROMPT_HINT
+            print(
+                f"[optimizer] RAG retrieval enabled: {len(corpus)} corpus entries, "
+                f"model={retrieval_model}, top_k={self.cfg.retrieval.top_k}",
+                flush=True,
+            )
+
         self.openai_client = OpenAIPatchClient(
             model=self.cfg.openai.model,
             temperature=self.cfg.openai.temperature,
-            patch_system_prompt=self.cfg.prompts.patch_system_prompt,
+            patch_system_prompt=patch_system_prompt,
             patch_schema_hint=self.cfg.prompts.patch_schema_hint,
             bootstrap_system_prompt=self.cfg.prompts.bootstrap_system_prompt,
         )
@@ -46,6 +79,7 @@ class Optimizer:
             self.cfg.strategies.proposer,
             self.openai_client,
             self.cfg.prompts,
+            retriever=retriever,
         )
         self.memory = make_memory(self.cfg.strategies.memory)
         self.scorer = make_scorer(self.cfg.strategies.scorer)
