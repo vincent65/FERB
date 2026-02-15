@@ -340,12 +340,15 @@ def main() -> None:
         )
 
         if args.profile:
-            trace_ref = os.path.join(args.logs_dir, f"trace_reference_rank{rank}.json")
             trace_cand = os.path.join(args.logs_dir, f"trace_candidate_rank{rank}.json")
-            _profile_once(ref_solution, _clone_arg(base_inputs), trace_ref)
             _profile_once(cand_solution, _clone_arg(base_inputs), trace_cand)
-            result_payload["trace_reference"] = trace_ref
             result_payload["trace_candidate"] = trace_cand
+            # Only profile the reference if we aren't skipping reference timing
+            # (i.e., this is a reference run or a combined run, not a cached-reference candidate eval).
+            if not args.skip_reference_timing:
+                trace_ref = os.path.join(args.logs_dir, f"trace_reference_rank{rank}.json")
+                _profile_once(ref_solution, _clone_arg(base_inputs), trace_ref)
+                result_payload["trace_reference"] = trace_ref
 
     except Exception as exc:  # pylint: disable=broad-except
         result_payload["status"] = "error"

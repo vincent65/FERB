@@ -57,6 +57,8 @@ class PromptConfig:
         "Focus on improving runtime while preserving correctness.\n\n"
         "Recent memory summary:\n"
         "{memory_summary}\n\n"
+        "Relevant NVSHMEM documentation:\n"
+        "{retrieved_docs}\n\n"
         "Latest evaluation feedback:\n"
         "{eval_feedback}\n\n"
         "Current candidate code:\n"
@@ -77,6 +79,8 @@ class PromptConfig:
         "Only apply safe performance tweaks after correctness is restored.\n\n"
         "Recent memory summary:\n"
         "{memory_summary}\n\n"
+        "Relevant NVSHMEM documentation:\n"
+        "{retrieved_docs}\n\n"
         "Latest evaluation feedback:\n"
         "{eval_feedback}\n\n"
         "Current candidate code:\n"
@@ -101,6 +105,8 @@ class PromptConfig:
         "```python\n"
         "{reference_code}\n"
         "```\n\n"
+        "Relevant NVSHMEM documentation:\n"
+        "{retrieved_docs}\n\n"
         "Solved Triton examples to use as style/context:\n"
         "{context_examples}\n\n"
         "Return ONLY valid JSON with key: candidate_code (string).\n"
@@ -117,6 +123,10 @@ class RetrievalConfig:
     enabled: bool = False
     top_k: int = 3
     retrieval_model: str | None = None  # None = use same model as main proposer.
+    docs_dir: str = "scraped_docs"  # Directory containing manifest.json + markdown/.
+    rlm_max_iterations: int = 15  # Max RLM reasoning iterations per retrieval call.
+    rlm_max_depth: int = 1  # Max recursion depth for the RLM.
+    rlm_custom_system_prompt: str | None = None  # Optional override for the RLM system prompt.
 
 
 @dataclass

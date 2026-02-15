@@ -181,17 +181,27 @@ def run_distributed_eval(
     
     # List output files
     output_files = []
+    # Inline small JSON files so the caller doesn't need a second container
+    # to download them.
+    inline_files: dict[str, bytes] = {}
     if os.path.isdir(logs_dir):
         for root, _, files in os.walk(logs_dir):
             for fname in sorted(files):
-                if fname.endswith(".pt") or fname.endswith(".json"):
-                    output_files.append(os.path.join(root, fname))
+                fpath = os.path.join(root, fname)
+                if fname.endswith(".json"):
+                    output_files.append(fpath)
+                    rel = os.path.relpath(fpath, logs_dir)
+                    with open(fpath, "rb") as fh:
+                        inline_files[rel] = fh.read()
+                elif fname.endswith(".pt"):
+                    output_files.append(fpath)
 
     return {
         "problem_id": problem_id,
         "solution_type": solution_type,
         "logs_dir": logs_dir,
         "output_files": output_files,
+        "inline_files": inline_files,
     }
 
 
@@ -237,6 +247,7 @@ def main(
     save_outputs: bool = True,
     use_cached_reference: bool = False,
     worker_timeout_s: int = 20 * 60,
+    skip_pt_download: bool = False,
 ):
     """
     Run distributed kernel evaluation on Modal.
@@ -285,8 +296,6 @@ def main(
     # Download files to local logs/ directory
     if download:
         print()
-        print("Downloading .pt and .json files to local logs/ directory...")
-        
         local_logs_dir = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "logs",
@@ -294,14 +303,31 @@ def main(
             solution,
         )
         os.makedirs(local_logs_dir, exist_ok=True)
-        
-        files = download_logs.remote(problem, solution)
-        for fname, data in files:
-            local_path = os.path.join(local_logs_dir, fname)
-            os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            with open(local_path, "wb") as f:
-                f.write(data)
-            print(f"  Downloaded: {local_path}")
+
+        # 1) Write inline JSON files (returned from eval, no 2nd container needed)
+        inline_files = result.get("inline_files", {})
+        if inline_files:
+            print(f"Writing {len(inline_files)} inline JSON file(s) to local logs/ ...")
+            for fname, data in inline_files.items():
+                local_path = os.path.join(local_logs_dir, fname)
+                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                with open(local_path, "wb") as f:
+                    f.write(data)
+                print(f"  Saved: {local_path}")
+
+        # 2) Download .pt files via volume (only if there are .pt files and not skipped)
+        has_pt_files = any(f.endswith(".pt") for f in result.get("output_files", []))
+        if has_pt_files and not skip_pt_download:
+            print("Downloading .pt files from Modal volume...")
+            files = download_logs.remote(problem, solution)
+            for fname, data in files:
+                if not fname.endswith(".pt"):
+                    continue  # JSON files already written above
+                local_path = os.path.join(local_logs_dir, fname)
+                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                with open(local_path, "wb") as f:
+                    f.write(data)
+                print(f"  Downloaded: {local_path}")
         
         print()
         print(f"All files downloaded to: {local_logs_dir}")

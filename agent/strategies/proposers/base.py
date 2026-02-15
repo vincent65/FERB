@@ -14,6 +14,8 @@ class ProposalContext:
     memory_summary: str
     proposal_mode: str
     eval_feedback: dict
+    retrieved_docs: str = ""  # RLM-retrieved documentation context.
+    failed_code: str = ""  # Code that was rolled back (if any), so the LLM knows what it tried.
 
 
 class Proposer(Protocol):

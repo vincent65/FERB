@@ -25,12 +25,14 @@ class BootstrapStage:
         seed_from_backend: str,
         prompt_config: PromptConfig,
         openai_client: OpenAIPatchClient,
+        rlm_retriever: object | None = None,
     ):
         self.repo_root = repo_root
         self.candidate_dir = candidate_dir
         self.seed_from_backend = seed_from_backend
         self.prompt_config = prompt_config
         self.openai_client = openai_client
+        self.rlm_retriever = rlm_retriever
 
     def candidate_file(self, problem_id: int) -> Path:
         return self.repo_root / self.candidate_dir / f"{problem_id}_agent.py"
@@ -97,11 +99,19 @@ class BootstrapStage:
 
         reference_code = reference_file.read_text(encoding="utf-8")
         context_examples = self._collect_context_examples(problem_id)
+        retrieved_docs = "No documentation retrieved."
+        if self.rlm_retriever is not None:
+            query = (
+                f"Bootstrap problem {problem_id}: NVSHMEM/Triton kernel optimization. "
+                f"Reference implementation:\n{reference_code[:500]}..."
+            )
+            retrieved_docs = self.rlm_retriever.retrieve(query)
         prompt = self.prompt_config.bootstrap_template.format(
             problem_id=problem_id,
             candidate_file=str(dst),
             reference_code=reference_code,
             context_examples=context_examples,
+            retrieved_docs=retrieved_docs,
         )
         candidate_code = self.openai_client.generate_initial_candidate(prompt).strip()
         if not candidate_code:

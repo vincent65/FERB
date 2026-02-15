@@ -1,0 +1,10 @@
+{
+  "rank": 6,
+  "world_size": 8,
+  "problem_id": 11,
+  "backend": "agent",
+  "backend_mode": "triton",
+  "status": "error",
+  "error": "The values for attribute 'shape' do not match: torch.Size([1024, 1024]) != torch.Size([1024, 8192]).",
+  "traceback": "Traceback (most recent call last):\n  File \"/workspace/scripts/worker.py\", line 303, in main\n    _compare_outputs(out_ref, out_cand, rtol=tolerances[\"rtol\"], atol=tolerances[\"atol\"])\n  File \"/workspace/scripts/worker.py\", line 110, in _compare_outputs\n    torch.testing.assert_close(out_candidate, out_ref, rtol=rtol, atol=atol)\n  File \"/usr/local/lib/python3.12/site-packages/torch/testing/_comparison.py\", line 1600, in assert_close\n    raise error_metas[0].to_error(msg)\nAssertionError: The values for attribute 'shape' do not match: torch.Size([1024, 1024]) != torch.Size([1024, 8192]).\n"
+}

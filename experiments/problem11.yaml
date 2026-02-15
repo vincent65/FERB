@@ -42,6 +42,9 @@ prompts:
     Recent memory summary:
     {memory_summary}
 
+    Relevant NVSHMEM documentation:
+    {retrieved_docs}
+
     Latest evaluation feedback:
     {eval_feedback}
 
@@ -64,6 +67,9 @@ prompts:
 
     Recent memory summary:
     {memory_summary}
+
+    Relevant NVSHMEM documentation:
+    {retrieved_docs}
 
     Latest evaluation feedback:
     {eval_feedback}
@@ -90,6 +96,9 @@ prompts:
     {reference_code}
     ```
 
+    Relevant NVSHMEM documentation:
+    {retrieved_docs}
+
     Solved Triton examples to use as style/context:
     {context_examples}
 
@@ -103,5 +112,8 @@ strategies:
 
 retrieval:
   enabled: true
-  top_k: 3
-  # retrieval_model: gpt-4o-mini  # Uncomment to use a different model for ranking.
+  top_k: 2
+  docs_dir: scraped_docs
+  retrieval_model: gpt-4o-mini
+  rlm_max_iterations: 15
+  rlm_max_depth: 1

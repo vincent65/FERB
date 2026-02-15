@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EcholoKernel Agent - Detailed Flow Diagrams</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #f8f9fa;
+    }
+    h1 {
+      color: #1a1a2e;
+      border-bottom: 2px solid #4361ee;
+      padding-bottom: 0.5rem;
+    }
+    h2 {
+      color: #2d3748;
+      margin-top: 3rem;
+      margin-bottom: 1rem;
+    }
+    .diagram-container {
+      background: white;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      overflow-x: auto;
+    }
+    .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+    .diagram-container .mermaid {
+      min-height: 200px;
+    }
+  </style>
+</head>
+<body>
+  <h1>EcholoKernel Agent: Detailed Flow Diagrams</h1>
+  <p>All Mermaid diagrams from <code>DETAILED_AGENT_FLOW.md</code>, rendered for visualization.</p>
+
+  <h2>1. Complete Agent Execution Flow</h2>
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    Start([Start Experiment]) --> LoadConfig[Load YAML Config]
+    LoadConfig --> InitOptimizer[Initialize Optimizer]
+    
+    InitOptimizer --> CheckRetrieval{Retrieval<br/>Enabled?}
+    CheckRetrieval -->|Yes| InitTritonCorpus[Initialize Triton Corpus<br/>Load reference+solution pairs]
+    CheckRetrieval -->|Yes| InitLLMRetriever[Initialize LLM Retriever<br/>For example kernel ranking]
+    CheckRetrieval -->|No| SkipRAG[No RAG Retrieval]
+    
+    InitTritonCorpus --> CheckDocs{Docs Dir<br/>Exists?}
+    InitLLMRetriever --> CheckDocs
+    SkipRAG --> InitOpenAI
+    
+    CheckDocs -->|Yes| InitDocsCorpus[Initialize Docs Corpus<br/>Load markdown pages + manifest]
+    CheckDocs -->|No| SkipRLM[No RLM Retrieval]
+    
+    InitDocsCorpus --> InitRLMRetriever[Initialize RLM Retriever<br/>For recursive doc search]
+    InitRLMRetriever --> InitOpenAI[Initialize OpenAI Client]
+    SkipRLM --> InitOpenAI
+    
+    InitOpenAI --> InitBootstrap[Initialize Bootstrap Stage]
+    InitBootstrap --> InitProposer[Initialize Proposer<br/>with optional retriever]
+    InitProposer --> InitMemory[Initialize Memory Strategy<br/>e.g., best_so_far]
+    InitMemory --> InitScorer[Initialize Scorer<br/>e.g., speedup_mean]
+    InitScorer --> InitEvaluator[Initialize Modal Evaluator]
+    InitEvaluator --> CreateRunDir[Create Run Directory<br/>with timestamp]
+    CreateRunDir --> InitLogger[Initialize RunLogger<br/>JSONL output]
+    
+    InitLogger --> BootstrapPhase[BOOTSTRAP PHASE]
+    
+    BootstrapPhase --> BootLoop{For each<br/>problem}
+    
+    BootLoop -->|Next Problem| CheckCandidateExists{Candidate<br/>file exists?}
+    
+    CheckCandidateExists -->|Yes| LogSkipped[Log: bootstrap_skipped_existing]
+    CheckCandidateExists -->|No| CheckSeedExists{Seed file<br/>exists?}
+    
+    CheckSeedExists -->|Yes| CopySeed[Copy from solutions_<backend>/<br/>e.g., solutions_triton/]
+    CheckSeedExists -->|No| GenerateNew[Generate from scratch]
+    
+    CopySeed --> LogSeedCopy[Log: bootstrap_seed_copy]
+    
+    GenerateNew --> LoadReference[Load reference implementation<br/>from reference/id.py]
+    LoadReference --> CollectContext[Collect context examples<br/>from other solved problems]
+    CollectContext --> BootstrapRLMCheck{RLM Retriever<br/>available?}
+    
+    BootstrapRLMCheck -->|Yes| BootstrapRLMQuery[Build RLM Query:<br/>Problem ID + Reference snippet]
+    BootstrapRLMCheck -->|No| BootstrapNoRLM[No docs retrieved]
+    
+    BootstrapRLMQuery --> BootstrapRLMCall[Call RLM.retrieve<br/>Recursive doc search]
+    
+    BootstrapRLMCall --> BootstrapRLMIter{Iteration < Max?}
+    BootstrapRLMIter -->|Yes| RLMSelectPages[LLM selects relevant pages<br/>based on query]
+    RLMSelectPages --> RLMReadPages[Read page contents]
+    RLMReadPages --> RLMAppendContext[Append to context]
+    RLMAppendContext --> RLMGenerateFollowup[LLM generates follow-up query<br/>or decides to stop]
+    RLMGenerateFollowup --> RLMContinue{Continue<br/>search?}
+    RLMContinue -->|Yes| BootstrapRLMIter
+    RLMContinue -->|No| RLMConcatDocs[Concatenate all retrieved docs]
+    BootstrapRLMIter -->|No| RLMConcatDocs
+    
+    RLMConcatDocs --> BootstrapBuildPrompt
+    BootstrapNoRLM --> BootstrapBuildPrompt[Build Bootstrap Prompt:<br/>- Reference code<br/>- Context examples<br/>- Retrieved docs]
+    
+    BootstrapBuildPrompt --> BootstrapLLMCall[LLM: Generate Initial Candidate<br/>Returns JSON with candidate_code]
+    BootstrapLLMCall --> ValidateBootstrap{Valid code?<br/>Has def solution?}
+    
+    ValidateBootstrap -->|No| BootstrapError[Raise RuntimeError:<br/>Invalid bootstrap]
+    ValidateBootstrap -->|Yes| WriteCandidate[Write to solutions_agent/id_agent.py]
+    
+    WriteCandidate --> LogGenerated[Log: bootstrap_generated]
+    LogGenerated --> SnapshotIter0[Save snapshot:<br/>snapshots/problem_id/iter_0_bootstrap.py]
+    LogSkipped --> SnapshotIter0
+    LogSeedCopy --> SnapshotIter0
+    
+    SnapshotIter0 --> AdvanceProgress1[Advance Progress Bar]
+    AdvanceProgress1 --> BootLoop
+    
+    BootLoop -->|All Done| PrecomputeRefs[Precompute Reference Results]
+    
+    PrecomputeRefs --> RefLoop{For each<br/>problem}
+    RefLoop -->|Next| RunRefBackend[Run Modal:<br/>reference backend]
+    
+    RunRefBackend --> RefModalCmd[modal run run_modal.py]
+    
+    RefModalCmd --> RefWait{Subprocess<br/>completes?}
+    
+    RefWait -->|Timeout| RefTimeoutError[Raise RuntimeError]
+    RefWait -->|Error| RefCrashError[Raise RuntimeError]
+    RefWait -->|Success| RefParseSummary[Parse summary_rank0.json]
+    
+    RefParseSummary --> RefExtractMetrics[Extract metrics]
+    RefExtractMetrics --> RefCache[Cache reference result]
+    RefCache --> RefLoop
+    
+    RefLoop -->|All Done| AdvanceProgress2[Advance Progress Bar]
+    AdvanceProgress2 --> MainIterLoop[MAIN ITERATION LOOP]
+    
+    MainIterLoop --> IterCheck{Iteration < max?}
+    
+    IterCheck -->|No| EndExperiment[End Experiment]
+    IterCheck -->|Yes| EvaluateAll[EVALUATE ALL CANDIDATES]
+    
+    EvaluateAll --> EvalProblemLoop{For each problem}
+    
+    EvalProblemLoop -->|Next| GetCachedRef[Get cached reference result]
+    GetCachedRef --> RunCandidateBackend[Run Modal: candidate backend]
+    
+    RunCandidateBackend --> CandModalCmd[modal run run_modal.py]
+    
+    CandModalCmd --> CandWait{Subprocess completes?}
+    
+    CandWait -->|Timeout| MakeTimeoutResult[Create Error Result]
+    CandWait -->|Error| MakeCrashResult[Create Error Result]
+    CandWait -->|Success| CheckSummaryExists{Summary exists?}
+    
+    CheckSummaryExists -->|No| MakeMissingResult[Create Error Result]
+    CheckSummaryExists -->|Yes| ParseCandSummary[Parse summary_rank0.json]
+    
+    MakeTimeoutResult --> StoreEvalResult
+    MakeCrashResult --> StoreEvalResult
+    MakeMissingResult --> StoreEvalResult
+    ParseCandSummary --> ExtractCandMetrics[Extract metrics]
+    
+    ExtractCandMetrics --> StoreEvalResult[Store evaluation result]
+    StoreEvalResult --> EvalProblemLoop
+    
+    EvalProblemLoop -->|All Done| ScoreAll[Score All Results]
+    
+    ScoreAll --> ScoreLoop{For each result}
+    ScoreLoop -->|Next| CheckEvalFailed{Eval failed?}
+    
+    CheckEvalFailed -->|Yes| AssignZeroScore[Assign score = 0.0]
+    CheckEvalFailed -->|No| CallScorer[Call Scorer.score]
+    
+    CallScorer --> SpeedupCalc[Speedup Mean Scorer]
+    SpeedupCalc --> StoreScore[Store score]
+    AssignZeroScore --> StoreScore
+    
+    StoreScore --> LogEvalEntry[Log evaluation entry]
+    LogEvalEntry --> ScoreLoop
+    
+    ScoreLoop -->|All Done| ComputeMeanScore[Compute mean score]
+    ComputeMeanScore --> AdvanceProgress3[Advance Progress Bar]
+    
+    AdvanceProgress3 --> CheckEarlyStop{early_stop_speedup?}
+    
+    CheckEarlyStop -->|Yes| LogEarlyStop[Log: early_stop]
+    LogEarlyStop --> EndExperiment
+    
+    CheckEarlyStop -->|No| ProposalPhase[PROPOSAL PHASE]
+    
+    ProposalPhase --> PropLoop{For each problem}
+    
+    PropLoop -->|Next| TakeSnapshot[Take rollback snapshot]
+    
+    TakeSnapshot --> CheckLatestFailed{Latest eval failed?}
+    
+    CheckLatestFailed -->|Yes| CaptureFailedCode[Capture failed code]
+    CaptureFailedCode --> ExecuteRollback[Rollback]
+    CheckLatestFailed -->|No| SkipRollback[No rollback]
+    
+    ExecuteRollback --> TakeSnapshotAgain[Take new snapshot]
+    TakeSnapshotAgain --> DetermineMode
+    SkipRollback --> DetermineMode[Determine Proposal Mode]
+    
+    DetermineMode --> CheckCorrectness{Eval failed OR correctness?}
+    
+    CheckCorrectness -->|Yes| SetCorrectMode[Mode = correctness_fix]
+    CheckCorrectness -->|No| SetPerfMode[Mode = perf_opt]
+    
+    SetCorrectMode --> BuildProposalContext
+    SetPerfMode --> BuildProposalContext[Build Proposal Context]
+    
+    BuildProposalContext --> GetMemorySummary[Get Memory Summary]
+    
+    GetMemorySummary --> MemoryStrategy{Memory Strategy}
+    MemoryStrategy -->|best_so_far| BuildIterationTimeline[Build iteration timeline]
+    MemoryStrategy -->|none| NoMemory[Return empty summary]
+    
+    BuildIterationTimeline --> FormatMemorySummary[Format as text summary]
+    NoMemory --> FormatMemorySummary
+    
+    FormatMemorySummary --> PropRLMCheck{RLM Retriever available?}
+    
+    PropRLMCheck -->|Yes| BuildRLMQuery[Build RLM Query]
+    PropRLMCheck -->|No| PropNoRLM[retrieved_docs = empty]
+    
+    BuildRLMQuery --> PropRLMCall[Call RLM.retrieve]
+    
+    PropRLMCall --> PropRLMConcat[Concatenate retrieved docs]
+    PropNoRLM --> AddRLMContext[Add retrieved_docs to context]
+    PropRLMConcat --> AddRLMContext
+    
+    AddRLMContext --> SelectTemplate{Proposal Mode?}
+    
+    SelectTemplate -->|correctness_fix| UseCorrectTemplate[correctness_patch_template]
+    SelectTemplate -->|perf_opt| UsePerfTemplate[performance_patch_template]
+    
+    UseCorrectTemplate --> FormatPrompt[Format prompt]
+    UsePerfTemplate --> FormatPrompt
+    
+    FormatPrompt --> CheckRAG{RAG Retriever available?}
+    
+    CheckRAG -->|Yes| LLMWithTools[LLM Call with Tools]
+    CheckRAG -->|No| LLMDirect[Direct LLM Call]
+    
+    LLMWithTools --> ParseProposalJSON
+    LLMDirect --> ParseProposalJSON[Parse JSON Response]
+    
+    ParseProposalJSON --> ValidateProposal{Proposal valid?}
+    
+    ValidateProposal -->|Invalid| PropRollback[Rollback]
+    ValidateProposal -->|Valid| WriteNewCode[Write candidate_code]
+    
+    WriteNewCode --> SaveIterSnapshot[Save snapshot]
+    SaveIterSnapshot --> LogApplied[Log: proposal_applied]
+    
+    PropRollback --> AdvanceProgress4[Advance Progress Bar]
+    LogApplied --> AdvanceProgress4
+    
+    AdvanceProgress4 --> PropLoop
+    
+    PropLoop -->|All Done| IncrementIter[Increment iteration]
+    IncrementIter --> MainIterLoop
+    
+    EndExperiment --> WriteSummary[Write summary.json]
+    WriteSummary --> PrintPaths[Print output paths]
+    PrintPaths --> End([Experiment Complete])
+    
+    style Start fill:#e1f5e1
+    style End fill:#e1f5e1
+    style BootstrapPhase fill:#fff4e1
+    style MainIterLoop fill:#e1f0ff
+    style EvaluateAll fill:#ffe1f0
+    style ProposalPhase fill:#f0e1ff
+    style EndExperiment fill:#e1f5e1
+    </pre>
+  </div>
+
+  <h2>2. RLM (Recursive Language Model) Retrieval Process</h2>
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    Start([RLM Retrieval Start]) --> InitVars[Initialize: context, iteration, query]
+    
+    InitVars --> IterCheck{iteration < max_iterations?}
+    
+    IterCheck -->|No| ReturnContext[Return concatenated context]
+    IterCheck -->|Yes| BuildRankPrompt[Build ranking prompt]
+    
+    BuildRankPrompt --> CallRankLLM[LLM Call: Rank pages]
+    
+    CallRankLLM --> ParsePageIDs[Parse page IDs from response]
+    
+    ParsePageIDs --> ReadPages[Read top-K page contents]
+    
+    ReadPages --> AppendToContext[Append pages to context]
+    
+    AppendToContext --> BuildDecisionPrompt[Build decision prompt]
+    
+    BuildDecisionPrompt --> CallDecisionLLM[LLM Call: Decide next action]
+    
+    CallDecisionLLM --> ParseDecision{LLM says continue?}
+    
+    ParseDecision -->|No| ReturnContext
+    ParseDecision -->|Yes| ExtractNewQuery[Extract follow-up query]
+    
+    ExtractNewQuery --> UpdateQuery[Update query variable]
+    UpdateQuery --> IncrementIter[Increment iteration]
+    IncrementIter --> IterCheck
+    
+    ReturnContext --> End([Return Retrieved Docs])
+    
+    style Start fill:#f0e1ff
+    style End fill:#f0e1ff
+    </pre>
+  </div>
+
+  <h2>3. RAG Tool-Use Cycle During Proposal</h2>
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    Start([Proposer with RAG]) --> InitMessages[Initialize messages]
+    
+    InitMessages --> SetupTools[Setup tools: search_examples]
+    
+    SetupTools --> RoundCheck{round < max_tool_rounds?}
+    
+    RoundCheck -->|No| ForceFinal[Make final call without tools]
+    RoundCheck -->|Yes| SendRequest[Send API request]
+    
+    SendRequest --> GetResponse[Get response]
+    
+    GetResponse --> ExtractOutputs[Extract output items]
+    
+    ExtractOutputs --> FilterToolCalls[Filter tool calls]
+    
+    FilterToolCalls --> HasTools{Has tool calls?}
+    
+    HasTools -->|No| ParseText[Parse output_text as JSON]
+    HasTools -->|Yes| ToolLoop{For each tool call}
+    
+    ToolLoop -->|Next| ParseArgs[Parse arguments JSON]
+    
+    ParseArgs --> CallRetriever[Call retriever.retrieve]
+    
+    CallRetriever --> BuildCorpusSummary[Build corpus summary]
+    
+    BuildCorpusSummary --> RankWithLLM[LLM ranks corpus entries]
+    
+    RankWithLLM --> SelectEntries[Select top-K entries]
+    
+    SelectEntries --> FormatCode[Format as text]
+    
+    FormatCode --> AppendToolCall[Append to messages]
+    
+    AppendToolCall --> ToolLoop
+    
+    ToolLoop -->|All Done| IncrementRound[Increment round]
+    IncrementRound --> RoundCheck
+    
+    ForceFinal --> FinalRequest[Send API request without tools]
+    FinalRequest --> FinalResponse[Get response]
+    FinalResponse --> ParseText
+    
+    ParseText --> StripFences[Strip json fences]
+    StripFences --> JSONParse[Parse JSON]
+    JSONParse --> ExtractProposal[Extract proposal fields]
+    
+    ExtractProposal --> End([Return PatchProposal])
+    
+    style Start fill:#e1f0ff
+    style End fill:#e1f0ff
+    </pre>
+  </div>
+
+  <h2>4. Evaluation with Error Handling</h2>
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    Start([Evaluate Problem]) --> GetCached{Reference cached?}
+    
+    GetCached -->|No| RunRef[Run reference backend]
+    GetCached -->|Yes| SkipRef[Use cached reference]
+    
+    RunRef --> RefResult{Ref eval result?}
+    RefResult -->|Error/Timeout| RaiseError[Raise RuntimeError]
+    RefResult -->|Success| CacheRef[Cache reference result]
+    CacheRef --> RunCand
+    SkipRef --> RunCand[Run candidate backend]
+    
+    RunCand --> BuildCommand[Build modal run command]
+    
+    BuildCommand --> StartSubprocess[Start subprocess]
+    
+    StartSubprocess --> Wait{Wait for completion}
+    
+    Wait -->|Timeout| HandleTimeout[TimeoutExpired]
+    Wait -->|Non-zero exit| HandleError[CalledProcessError]
+    Wait -->|Other exception| HandleException[Generic Exception]
+    Wait -->|Success| CheckFile{Summary file exists?}
+    
+    HandleTimeout --> BuildTimeoutResult[Build error result: timeout]
+    
+    HandleError --> BuildErrorResult[Build error result: error]
+    
+    HandleException --> BuildExceptionResult[Build error result]
+    
+    CheckFile -->|No| BuildMissingResult[Build error result: Missing summary]
+    
+    CheckFile -->|Yes| ReadSummary[Read summary_rank0.json]
+    
+    ReadSummary --> ParseCorrectness[Parse correctness]
+    
+    ParseCorrectness --> ParsePerformance[Parse performance]
+    
+    ParsePerformance --> ParseTraces[Parse traces]
+    
+    ParseTraces --> BuildFeedback[Build eval_feedback dict]
+    
+    BuildFeedback --> BuildSuccessResult[Build BackendEvalResult]
+    
+    BuildTimeoutResult --> ReturnResult
+    BuildErrorResult --> ReturnResult
+    BuildExceptionResult --> ReturnResult
+    BuildMissingResult --> ReturnResult
+    BuildSuccessResult --> ReturnResult[Return result pair]
+    
+    ReturnResult --> End([Evaluation Complete])
+    
+    style Start fill:#ffe1f0
+    style End fill:#ffe1f0
+    style HandleTimeout fill:#ffcccc
+    style HandleError fill:#ffcccc
+    style HandleException fill:#ffcccc
+    style BuildMissingResult fill:#ffcccc
+    </pre>
+  </div>
+
+  <h2>5. Memory Strategy - Best So Far</h2>
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    Start([Memory.summarize]) --> Input[Input: history list]
+    
+    Input --> FindBest[Find best entry by score]
+    
+    FindBest --> BuildSummary[Build text summary]
+    
+    BuildSummary --> AddBestLine[Add: Best iteration so far]
+    
+    AddBestLine --> AddLatestLine[Add: Latest iteration]
+    
+    AddLatestLine --> FormatLoop{For each recent entry}
+    
+    FormatLoop -->|Next| CheckFailed{Eval failed?}
+    
+    CheckFailed -->|Yes| FormatFailed[Format: iter N FAILED]
+    CheckFailed -->|No| FormatSuccess[Format: iter N score=X]
+    
+    FormatFailed --> AppendText[Append to summary]
+    FormatSuccess --> AppendText
+    
+    AppendText --> FormatLoop
+    
+    FormatLoop -->|All Done| AddGuidance[Add: Avoid repeating failed approaches]
+    
+    AddGuidance --> ReturnSummary[Return formatted summary]
+    
+    ReturnSummary --> End([Memory Summary])
+    
+    style Start fill:#fff4e1
+    style End fill:#fff4e1
+    </pre>
+  </div>
+
+  <h2>6. Rollback Manager</h2>
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    Start([Rollback Manager]) --> Create[Create RollbackManager]
+    
+    Create --> Snapshot1[snapshot call before proposal]
+    
+    Snapshot1 --> ReadCurrent[Read current file content]
+    ReadCurrent --> StoreContent[Store content in memory]
+    
+    StoreContent --> GenerateProposal[Agent generates new code]
+    GenerateProposal --> Validate{Code valid?}
+    
+    Validate -->|Yes| Apply[Write new code to file]
+    Validate -->|No| NeedRollback[Need to rollback]
+    
+    Apply --> EvaluateCode[Evaluate new code]
+    EvaluateCode --> EvalResult{Eval result?}
+    
+    EvalResult -->|Success| KeepChanges[Keep changes]
+    EvalResult -->|Error/Timeout| NeedRollback
+    
+    NeedRollback --> RollbackCall[rollback call]
+    RollbackCall --> RestoreContent[Write content back to file]
+    RestoreContent --> LogRollback[Log rollback event]
+    
+    LogRollback --> NextIteration[Next iteration]
+    KeepChanges --> NextIteration
+    
+    NextIteration --> Snapshot2[snapshot call for next proposal]
+    Snapshot2 --> ReadAgain[Read current file content]
+    ReadAgain --> StoreAgain[Update _snapshot_content]
+    
+    StoreAgain --> End([Ready for next cycle])
+    
+    style Start fill:#e1f5e1
+    style End fill:#e1f5e1
+    style NeedRollback fill:#ffcccc
+    style RollbackCall fill:#ffcccc
+    </pre>
+  </div>
+
+  <h2>7. Logging & Persistence</h2>
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart LR
+    A[Bootstrap] --> L[Logger]
+    B[Evaluation] --> L
+    C[Proposal] --> L
+    D[Rollback] --> L
+    E[Early Stop] --> L
+    F[Code Snapshot] --> L
+    
+    L --> J1[run_log.jsonl]
+    L --> J2[llm_outputs.jsonl]
+    
+    C --> S[Snapshot Manager]
+    S --> D1[snapshots/iter_0_bootstrap.py]
+    S --> D2[snapshots/iter_1.py]
+    S --> D3[snapshots/iter_N.py]
+    
+    B --> E1[logs/reference/summary_rank0.json]
+    B --> E2[logs/agent/summary_rank0.json]
+    B --> E3[logs/agent/profiles/]
+    </pre>
+  </div>
+
+  <h2>8. Configuration Impact on Flow</h2>
+  <div class="diagram-container">
+    <pre class="mermaid">
+flowchart TD
+    Config[YAML Config] --> R{retrieval.enabled?}
+    R -->|true| RAGPath[Initialize RAG components]
+    R -->|false| NoRAG[Direct LLM calls only]
+    
+    Config --> ES{early_stop_speedup set?}
+    ES -->|set| CheckStop[Check score each iteration]
+    ES -->|null| RunFull[Run all max_iterations]
+    
+    Config --> SB{seed_from_backend set?}
+    SB -->|triton| CopySeed[Copy from solutions_triton/]
+    SB -->|other| CopyOther[Copy from solutions_backend/]
+    
+    Config --> ST{strategies config}
+    ST --> Prop[proposer]
+    ST --> Mem[memory]
+    ST --> Scr[scorer]
+    </pre>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'default',
+      flowchart: {
+        useMaxWidth: true,
+        htmlLabels: true,
+        curve: 'basis'
+      }
+    });
+  </script>
+</body>
+</html>

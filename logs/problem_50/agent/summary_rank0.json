@@ -1,0 +1,89 @@
+{
+  "problem_id": 50,
+  "backend": "agent",
+  "status": "error",
+  "n_ranks": 8,
+  "ranks": [
+    {
+      "rank": 0,
+      "world_size": 8,
+      "problem_id": 50,
+      "backend": "agent",
+      "backend_mode": "triton",
+      "status": "error",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 921909 / 1051648 (87.7%)\nGreatest absolute difference: 4.916592597961426 at index (530, 5) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (126, 0) (up to 0.001 allowed)",
+      "traceback": "Traceback (most recent call last):\n  File \"/workspace/scripts/worker.py\", line 303, in main\n    _compare_outputs(out_ref, out_cand, rtol=tolerances[\"rtol\"], atol=tolerances[\"atol\"])\n  File \"/workspace/scripts/worker.py\", line 110, in _compare_outputs\n    torch.testing.assert_close(out_candidate, out_ref, rtol=rtol, atol=atol)\n  File \"/usr/local/lib/python3.12/site-packages/torch/testing/_comparison.py\", line 1600, in assert_close\n    raise error_metas[0].to_error(msg)\nAssertionError: Tensor-likes are not close!\n\nMismatched elements: 921909 / 1051648 (87.7%)\nGreatest absolute difference: 4.916592597961426 at index (530, 5) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (126, 0) (up to 0.001 allowed)\n"
+    },
+    {
+      "rank": 1,
+      "world_size": 8,
+      "problem_id": 50,
+      "backend": "agent",
+      "backend_mode": "triton",
+      "status": "error",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 906547 / 1036288 (87.5%)\nGreatest absolute difference: 5.378570556640625 at index (728, 738) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)",
+      "traceback": "Traceback (most recent call last):\n  File \"/workspace/scripts/worker.py\", line 303, in main\n    _compare_outputs(out_ref, out_cand, rtol=tolerances[\"rtol\"], atol=tolerances[\"atol\"])\n  File \"/workspace/scripts/worker.py\", line 110, in _compare_outputs\n    torch.testing.assert_close(out_candidate, out_ref, rtol=rtol, atol=atol)\n  File \"/usr/local/lib/python3.12/site-packages/torch/testing/_comparison.py\", line 1600, in assert_close\n    raise error_metas[0].to_error(msg)\nAssertionError: Tensor-likes are not close!\n\nMismatched elements: 906547 / 1036288 (87.5%)\nGreatest absolute difference: 5.378570556640625 at index (728, 738) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)\n"
+    },
+    {
+      "rank": 2,
+      "world_size": 8,
+      "problem_id": 50,
+      "backend": "agent",
+      "backend_mode": "triton",
+      "status": "error",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 906569 / 1028096 (88.2%)\nGreatest absolute difference: 4.625240325927734 at index (18, 775) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)",
+      "traceback": "Traceback (most recent call last):\n  File \"/workspace/scripts/worker.py\", line 303, in main\n    _compare_outputs(out_ref, out_cand, rtol=tolerances[\"rtol\"], atol=tolerances[\"atol\"])\n  File \"/workspace/scripts/worker.py\", line 110, in _compare_outputs\n    torch.testing.assert_close(out_candidate, out_ref, rtol=rtol, atol=atol)\n  File \"/usr/local/lib/python3.12/site-packages/torch/testing/_comparison.py\", line 1600, in assert_close\n    raise error_metas[0].to_error(msg)\nAssertionError: Tensor-likes are not close!\n\nMismatched elements: 906569 / 1028096 (88.2%)\nGreatest absolute difference: 4.625240325927734 at index (18, 775) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)\n"
+    },
+    {
+      "rank": 3,
+      "world_size": 8,
+      "problem_id": 50,
+      "backend": "agent",
+      "backend_mode": "triton",
+      "status": "error",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 931094 / 1068032 (87.2%)\nGreatest absolute difference: 4.959536075592041 at index (563, 572) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)",
+      "traceback": "Traceback (most recent call last):\n  File \"/workspace/scripts/worker.py\", line 303, in main\n    _compare_outputs(out_ref, out_cand, rtol=tolerances[\"rtol\"], atol=tolerances[\"atol\"])\n  File \"/workspace/scripts/worker.py\", line 110, in _compare_outputs\n    torch.testing.assert_close(out_candidate, out_ref, rtol=rtol, atol=atol)\n  File \"/usr/local/lib/python3.12/site-packages/torch/testing/_comparison.py\", line 1600, in assert_close\n    raise error_metas[0].to_error(msg)\nAssertionError: Tensor-likes are not close!\n\nMismatched elements: 931094 / 1068032 (87.2%)\nGreatest absolute difference: 4.959536075592041 at index (563, 572) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)\n"
+    },
+    {
+      "rank": 4,
+      "world_size": 8,
+      "problem_id": 50,
+      "backend": "agent",
+      "backend_mode": "triton",
+      "status": "error",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 935176 / 1057792 (88.4%)\nGreatest absolute difference: 4.805339813232422 at index (131, 767) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)",
+      "traceback": "Traceback (most recent call last):\n  File \"/workspace/scripts/worker.py\", line 303, in main\n    _compare_outputs(out_ref, out_cand, rtol=tolerances[\"rtol\"], atol=tolerances[\"atol\"])\n  File \"/workspace/scripts/worker.py\", line 110, in _compare_outputs\n    torch.testing.assert_close(out_candidate, out_ref, rtol=rtol, atol=atol)\n  File \"/usr/local/lib/python3.12/site-packages/torch/testing/_comparison.py\", line 1600, in assert_close\n    raise error_metas[0].to_error(msg)\nAssertionError: Tensor-likes are not close!\n\nMismatched elements: 935176 / 1057792 (88.4%)\nGreatest absolute difference: 4.805339813232422 at index (131, 767) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)\n"
+    },
+    {
+      "rank": 5,
+      "world_size": 8,
+      "problem_id": 50,
+      "backend": "agent",
+      "backend_mode": "triton",
+      "status": "error",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 924937 / 1071104 (86.4%)\nGreatest absolute difference: 5.108367443084717 at index (94, 774) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)",
+      "traceback": "Traceback (most recent call last):\n  File \"/workspace/scripts/worker.py\", line 303, in main\n    _compare_outputs(out_ref, out_cand, rtol=tolerances[\"rtol\"], atol=tolerances[\"atol\"])\n  File \"/workspace/scripts/worker.py\", line 110, in _compare_outputs\n    torch.testing.assert_close(out_candidate, out_ref, rtol=rtol, atol=atol)\n  File \"/usr/local/lib/python3.12/site-packages/torch/testing/_comparison.py\", line 1600, in assert_close\n    raise error_metas[0].to_error(msg)\nAssertionError: Tensor-likes are not close!\n\nMismatched elements: 924937 / 1071104 (86.4%)\nGreatest absolute difference: 5.108367443084717 at index (94, 774) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)\n"
+    },
+    {
+      "rank": 6,
+      "world_size": 8,
+      "problem_id": 50,
+      "backend": "agent",
+      "backend_mode": "triton",
+      "status": "error",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 950529 / 1081344 (87.9%)\nGreatest absolute difference: 4.749789714813232 at index (94, 221) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)",
+      "traceback": "Traceback (most recent call last):\n  File \"/workspace/scripts/worker.py\", line 303, in main\n    _compare_outputs(out_ref, out_cand, rtol=tolerances[\"rtol\"], atol=tolerances[\"atol\"])\n  File \"/workspace/scripts/worker.py\", line 110, in _compare_outputs\n    torch.testing.assert_close(out_candidate, out_ref, rtol=rtol, atol=atol)\n  File \"/usr/local/lib/python3.12/site-packages/torch/testing/_comparison.py\", line 1600, in assert_close\n    raise error_metas[0].to_error(msg)\nAssertionError: Tensor-likes are not close!\n\nMismatched elements: 950529 / 1081344 (87.9%)\nGreatest absolute difference: 4.749789714813232 at index (94, 221) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)\n"
+    },
+    {
+      "rank": 7,
+      "world_size": 8,
+      "problem_id": 50,
+      "backend": "agent",
+      "backend_mode": "triton",
+      "status": "error",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 865599 / 994304 (87.1%)\nGreatest absolute difference: 5.335087776184082 at index (420, 332) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)",
+      "traceback": "Traceback (most recent call last):\n  File \"/workspace/scripts/worker.py\", line 303, in main\n    _compare_outputs(out_ref, out_cand, rtol=tolerances[\"rtol\"], atol=tolerances[\"atol\"])\n  File \"/workspace/scripts/worker.py\", line 110, in _compare_outputs\n    torch.testing.assert_close(out_candidate, out_ref, rtol=rtol, atol=atol)\n  File \"/usr/local/lib/python3.12/site-packages/torch/testing/_comparison.py\", line 1600, in assert_close\n    raise error_metas[0].to_error(msg)\nAssertionError: Tensor-likes are not close!\n\nMismatched elements: 865599 / 994304 (87.1%)\nGreatest absolute difference: 5.335087776184082 at index (420, 332) (up to 0.001 allowed)\nGreatest relative difference: 1.0 at index (0, 0) (up to 0.001 allowed)\n"
+    }
+  ],
+  "aggregate": {}
+}

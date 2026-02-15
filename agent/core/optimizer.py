@@ -19,6 +19,10 @@ from agent.strategies.registry import make_memory, make_proposer, make_scorer
 from agent.strategies.retrieval.corpus import TritonCorpus
 from agent.strategies.retrieval.retriever import LLMRetriever
 
+# Lazy-imported when RLM retrieval is enabled:
+#   from agent.strategies.retrieval.docs_loader import DocsCorpus
+#   from agent.strategies.retrieval.rlm_retriever import RLMDocRetriever
+
 
 @dataclass
 class Optimizer:
@@ -68,12 +72,37 @@ class Optimizer:
             patch_schema_hint=self.cfg.prompts.patch_schema_hint,
             bootstrap_system_prompt=self.cfg.prompts.bootstrap_system_prompt,
         )
+        # -- Optional RLM-based documentation retrieval (needed for bootstrap) --
+        rlm_retriever = None
+        if self.cfg.retrieval.enabled and self.cfg.retrieval.docs_dir:
+            docs_path = self.repo_root / self.cfg.retrieval.docs_dir
+            if docs_path.exists():
+                from agent.strategies.retrieval.docs_loader import DocsCorpus
+                from agent.strategies.retrieval.rlm_retriever import RLMDocRetriever
+
+                docs_corpus = DocsCorpus(docs_path)
+                if len(docs_corpus) > 0:
+                    rlm_retriever = RLMDocRetriever(docs_corpus, self.cfg.retrieval)
+                    print(
+                        f"[optimizer] RLM doc retrieval enabled: {len(docs_corpus)} pages "
+                        f"({docs_corpus.total_chars} chars), "
+                        f"model={self.cfg.retrieval.retrieval_model or 'gpt-4o-mini'}, "
+                        f"max_iterations={self.cfg.retrieval.rlm_max_iterations}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[optimizer] RLM doc retrieval: no pages found in {docs_path}",
+                        flush=True,
+                    )
+        self.rlm_retriever = rlm_retriever
         self.bootstrap = BootstrapStage(
             repo_root=self.repo_root,
             candidate_dir=self.cfg.candidate_dir,
             seed_from_backend=self.cfg.seed_from_backend,
             prompt_config=self.cfg.prompts,
             openai_client=self.openai_client,
+            rlm_retriever=rlm_retriever,
         )
         self.proposer = make_proposer(
             self.cfg.strategies.proposer,
@@ -205,15 +234,44 @@ class Optimizer:
         status = result.eval_feedback.get("status")
         return status in ("error", "timeout")
 
+    def _save_traces_for_iteration(
+        self,
+        iteration: int,
+        problem_id: int,
+        reference: Any,
+        candidate: Any,
+    ) -> None:
+        """Copy profiler traces to run_dir so they persist per iteration."""
+        traces_dir = self.run_dir / "traces" / f"problem_{problem_id}" / f"iter_{iteration}"
+        traces_dir.mkdir(parents=True, exist_ok=True)
+        for backend, result in [("reference", reference), ("agent", candidate)]:
+            if result is None or not hasattr(result, "logs_dir"):
+                continue
+            try:
+                src = Path(result.logs_dir)
+            except (TypeError, ValueError):
+                continue
+            if not src.exists():
+                continue
+            dst = traces_dir / backend
+            dst.mkdir(parents=True, exist_ok=True)
+            for f in src.glob("trace_*.json"):
+                try:
+                    shutil.copy2(f, dst / f.name)
+                except OSError:
+                    pass
+
     # ------------------------------------------------------------------
     # Evaluation
     # ------------------------------------------------------------------
 
-    def _evaluate_all(self) -> tuple[float, list[dict]]:
+    def _evaluate_all(self, iteration: int) -> tuple[float, list[dict]]:
         entries: list[dict] = []
         scores: list[float] = []
         for problem in self.cfg.problems:
             reference, candidate = self.evaluator.evaluate_pair(problem)
+
+            self._save_traces_for_iteration(iteration, problem.problem_id, reference, candidate)
 
             if self._is_eval_failure(candidate):
                 error_msg = candidate.eval_feedback.get("error", "unknown error")
@@ -256,10 +314,63 @@ class Optimizer:
         return mean_score, entries
 
     # ------------------------------------------------------------------
+    # RLM retrieval
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_retrieval_query(
+        problem: ProblemConfig,
+        eval_feedback: dict,
+        proposal_mode: str,
+        current_code: str,
+    ) -> str:
+        """Build a targeted retrieval query from eval feedback signals.
+
+        The resulting query guides the RLM to search for the most relevant
+        NVSHMEM documentation given what went wrong (or right) in the latest
+        evaluation.
+        """
+        parts = [f"Problem {problem.problem_id}: distributed Triton/NVSHMEM kernel."]
+        parts.append(f"Mode: {proposal_mode}")
+
+        # Extract specific signals from eval feedback.
+        correctness = eval_feedback.get("correctness", {})
+        if not correctness.get("all_ok", True):
+            parts.append(f"Correctness issue: {json.dumps(correctness, default=str)}")
+
+        error = eval_feedback.get("error", "")
+        if error:
+            parts.append(f"Error: {error}")
+
+        if eval_feedback.get("is_timeout"):
+            parts.append(
+                "Code timed out -- likely a synchronization/barrier hang. "
+                "Look for NVSHMEM barrier, sync, and team-based synchronization APIs."
+            )
+
+        status = eval_feedback.get("status", "")
+        if status == "error":
+            parts.append(
+                "The evaluation crashed. Look for common NVSHMEM pitfalls: "
+                "symmetric memory allocation, buffer alignment, correct PE indexing."
+            )
+
+        # Add a truncated code snippet for API-matching context.
+        parts.append(f"Current code excerpt:\n{current_code[:800]}")
+
+        return "\n".join(parts)
+
+    # ------------------------------------------------------------------
     # Proposal
     # ------------------------------------------------------------------
 
-    def _proposal_for_problem(self, problem: ProblemConfig, history: list[dict]) -> dict:
+    def _proposal_for_problem(
+        self,
+        problem: ProblemConfig,
+        history: list[dict],
+        *,
+        failed_code: str = "",
+    ) -> dict:
         candidate_file = self._candidate_file(problem.problem_id)
         current_code = candidate_file.read_text(encoding="utf-8")
         latest = next((h for h in reversed(history) if h["problem_id"] == problem.problem_id), {})
@@ -273,6 +384,23 @@ class Optimizer:
         else:
             proposal_mode = "perf_opt"
 
+        # -- RLM documentation retrieval (feedback-driven) --
+        retrieved_docs = ""
+        if self.rlm_retriever is not None:
+            query = self._build_retrieval_query(
+                problem, latest_feedback, proposal_mode, current_code
+            )
+            print(
+                f"[optimizer] Running RLM doc retrieval for problem {problem.problem_id} "
+                f"(mode={proposal_mode})...",
+                flush=True,
+            )
+            retrieved_docs = self.rlm_retriever.retrieve(query)
+            print(
+                f"[optimizer] RLM retrieval returned {len(retrieved_docs)} chars",
+                flush=True,
+            )
+
         ctx = ProposalContext(
             problem_id=problem.problem_id,
             candidate_file=candidate_file,
@@ -281,6 +409,8 @@ class Optimizer:
             memory_summary=self.memory.summarize(history),
             proposal_mode=proposal_mode,
             eval_feedback=latest_feedback,
+            retrieved_docs=retrieved_docs,
+            failed_code=failed_code,
         )
         proposal = self.proposer.propose(ctx)
         proposal["mode"] = proposal_mode
@@ -314,7 +444,7 @@ class Optimizer:
 
         # ── Iterative loop ──
         for iteration in range(1, self.cfg.max_iterations + 1):
-            score, eval_entries = self._evaluate_all()
+            score, eval_entries = self._evaluate_all(iteration)
             for entry in eval_entries:
                 row = {"iteration": iteration, **entry}
                 history.append(row)
@@ -342,8 +472,15 @@ class Optimizer:
                     (e for e in reversed(eval_entries) if e["problem_id"] == p.problem_id),
                     None,
                 )
+                failed_code = ""
                 if latest_entry and latest_entry.get("eval_failed"):
                     failure_kind = latest_entry.get("eval_failure_kind", "error")
+                    # Capture the code that failed BEFORE rolling back so
+                    # the LLM can see exactly what it tried.
+                    try:
+                        failed_code = candidate_file.read_text(encoding="utf-8")
+                    except Exception:
+                        failed_code = ""
                     print(
                         f"[optimizer] Rolling back problem {p.problem_id} after "
                         f"eval {failure_kind} before re-proposing.",
@@ -361,7 +498,7 @@ class Optimizer:
                     )
                     rollback.snapshot()
 
-                proposal = self._proposal_for_problem(p, history)
+                proposal = self._proposal_for_problem(p, history, failed_code=failed_code)
                 cycle_event = (
                     "perf_opt_cycle"
                     if proposal.get("mode", "perf_opt") == "perf_opt"

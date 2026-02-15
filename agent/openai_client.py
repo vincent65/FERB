@@ -176,13 +176,23 @@ class OpenAIPatchClient:
                 break
 
             # Process each tool call and append results.
+            # For reasoning models (gpt-5, o3, o4-mini, etc.), response.output may
+            # contain reasoning items that must precede function_call items when
+            # passed back. Include full output to preserve required ordering.
+            def _item_to_dict(obj: Any) -> dict:
+                if hasattr(obj, "model_dump"):
+                    return obj.model_dump()
+                if isinstance(obj, dict):
+                    return obj
+                return dict(obj)
+
+            for item in response.output:
+                input_messages.append(_item_to_dict(item))
             for tc in tool_calls:
                 args = json.loads(tc.arguments)
                 query = args.get("query", "")
                 top_k = args.get("top_k")
                 result_text = retriever.retrieve(query, top_k=top_k)
-                # Feed the tool call and its output back into the conversation.
-                input_messages.append(tc.model_dump())
                 input_messages.append(
                     {
                         "type": "function_call_output",

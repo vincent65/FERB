@@ -144,6 +144,10 @@ class ModalEvaluator:
         cmd.append("--profile" if self.eval_cfg.profile else "--no-profile")
         if use_cached_reference:
             cmd.append("--use-cached-reference")
+        # Skip downloading .pt files locally — the evaluator only needs
+        # summary_rank0.json which is now inlined in the Modal return value.
+        # The .pt files stay on the Modal volume for cached-reference usage.
+        cmd.append("--skip-pt-download")
 
         # ── Run with a local timeout so a hung worker can never block the
         #    optimizer loop forever. ──
