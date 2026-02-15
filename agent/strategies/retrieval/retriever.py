@@ -4,8 +4,6 @@ import json
 import re
 from typing import Any
 
-from openai import OpenAI
-
 from agent.strategies.retrieval.corpus import CorpusEntry, TritonCorpus
 
 
@@ -23,11 +21,23 @@ class LLMRetriever:
         model: str | None = None,
         *,
         default_top_k: int = 3,
+        provider: str = "openai",
     ) -> None:
         self.corpus = corpus
         self.model = model or "gpt-4o-mini"
         self.default_top_k = default_top_k
-        self._client = OpenAI()
+        self.provider = provider.lower()
+
+        if self.provider in ("anthropic", "claude"):
+            import anthropic
+
+            self._anthropic_client = anthropic.Anthropic()
+            self._openai_client = None
+        else:
+            from openai import OpenAI
+
+            self._openai_client = OpenAI()
+            self._anthropic_client = None
 
     # ------------------------------------------------------------------
     # Public
@@ -76,19 +86,7 @@ class LLMRetriever:
             "Example: [10, 2, 1]"
         )
 
-        request: dict[str, Any] = {
-            "model": self.model,
-            "input": [
-                {"role": "system", "content": "You are a helpful code-retrieval assistant."},
-                {"role": "user", "content": ranking_prompt},
-            ],
-        }
-        # gpt-5 models reject the temperature parameter.
-        if not self.model.startswith("gpt-5"):
-            request["temperature"] = 0.0
-
-        response = self._client.responses.create(**request)
-        text = response.output_text.strip()
+        text = self._call_llm(ranking_prompt)
 
         selected_ids = self._parse_ids(text, top_k)
         id_to_entry = {e.problem_id: e for e in entries}
@@ -99,6 +97,36 @@ class LLMRetriever:
             selected = entries[:top_k]
 
         return selected
+
+    def _call_llm(self, ranking_prompt: str) -> str:
+        """Dispatch ranking call to the configured LLM provider."""
+        if self._anthropic_client is not None:
+            response = self._anthropic_client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                temperature=0.0,
+                system="You are a helpful code-retrieval assistant.",
+                messages=[{"role": "user", "content": ranking_prompt}],
+            )
+            parts: list[str] = []
+            for block in response.content:
+                if getattr(block, "type", None) == "text":
+                    parts.append(block.text)
+            return "\n".join(parts).strip()
+
+        # Default: OpenAI
+        assert self._openai_client is not None
+        request: dict[str, Any] = {
+            "model": self.model,
+            "input": [
+                {"role": "system", "content": "You are a helpful code-retrieval assistant."},
+                {"role": "user", "content": ranking_prompt},
+            ],
+        }
+        if not self.model.startswith("gpt-5"):
+            request["temperature"] = 0.0
+        response = self._openai_client.responses.create(**request)
+        return response.output_text.strip()
 
     @staticmethod
     def _parse_ids(text: str, top_k: int) -> list[int]:

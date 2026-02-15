@@ -28,7 +28,7 @@ image = (
     modal.Image.from_registry("nvidia/cuda:12.8.0-devel-ubuntu22.04", add_python="3.12")
     .apt_install(
         "wget", "xz-utils", "gnupg", "software-properties-common", "git",
-    )
+    )   
     # Install NVSHMEM from tarball (avoids version mismatch issues with apt package)
     .run_commands(
         "wget -q https://developer.download.nvidia.com/compute/nvshmem/redist/libnvshmem/linux-x86_64/libnvshmem-linux-x86_64-3.2.5_cuda12-archive.tar.xz -O /tmp/nvshmem.tar.xz",

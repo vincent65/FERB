@@ -19,11 +19,11 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3 mb-2">
           <div className="w-3 h-3 rounded-full bg-accent-green animate-breathe" />
           <h1 className="text-4xl font-extrabold tracking-tight text-text-primary">
-            Triton Kernel Optimizer
+            EcholoKernel
           </h1>
         </div>
         <p className="text-text-secondary text-sm ml-6">
-          Iterative optimization with OpenAI + Modal H100 evaluation
+          Iterative optimization with LLMs (OpenAI, Anthropic) + Modal H100 evaluation
         </p>
       </motion.div>
 

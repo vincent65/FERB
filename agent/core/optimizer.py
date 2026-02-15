@@ -13,8 +13,8 @@ from agent.core.bootstrap import BootstrapStage
 from agent.core.rollback import RollbackManager
 from agent.core.run_log import RunLogger
 from agent.eval.modal_evaluator import ModalEvaluator
-from agent.openai_client import OpenAIPatchClient
-from agent.strategies.proposers.base import ProposalContext
+from agent.llm_client import LLMPatchClient
+from agent.strategies.proposers.base import IterationSnapshot, ProposalContext
 from agent.strategies.registry import make_memory, make_proposer, make_scorer
 from agent.strategies.retrieval.corpus import TritonCorpus
 from agent.strategies.retrieval.retriever import LLMRetriever
@@ -56,6 +56,7 @@ class Optimizer:
                 corpus,
                 model=retrieval_model,
                 default_top_k=self.cfg.retrieval.top_k,
+                provider=self.cfg.openai.provider,
             )
             # Augment the system prompt so the model knows the tool exists.
             patch_system_prompt += self._RAG_SYSTEM_PROMPT_HINT
@@ -65,9 +66,10 @@ class Optimizer:
                 flush=True,
             )
 
-        self.openai_client = OpenAIPatchClient(
+        self.openai_client = LLMPatchClient(
             model=self.cfg.openai.model,
             temperature=self.cfg.openai.temperature,
+            provider=self.cfg.openai.provider,
             patch_system_prompt=patch_system_prompt,
             patch_schema_hint=self.cfg.prompts.patch_schema_hint,
             bootstrap_system_prompt=self.cfg.prompts.bootstrap_system_prompt,
@@ -230,9 +232,25 @@ class Optimizer:
 
     @staticmethod
     def _is_eval_failure(result) -> bool:
-        """Check if a BackendEvalResult represents a failed evaluation."""
+        """Check if a BackendEvalResult represents a hard infrastructure failure.
+
+        Correctness errors (shape mismatches, value diffs) are NOT treated as
+        eval failures — they produced useful feedback the LLM can act on.
+        Only treat as failure if the modal run itself crashed (no rank data)
+        or timed out.
+        """
         status = result.eval_feedback.get("status")
-        return status in ("error", "timeout")
+        if status == "timeout":
+            return True
+        if status == "error":
+            # If we got rank-level data back, this is a correctness error, not
+            # an infrastructure failure.  The LLM can learn from the per-rank
+            # error messages.
+            ranks = result.summary_rank0.get("ranks", [])
+            if len(ranks) > 0:
+                return False
+            return True
+        return False
 
     def _save_traces_for_iteration(
         self,
@@ -261,6 +279,89 @@ class Optimizer:
                 except OSError:
                     pass
 
+    @staticmethod
+    def _extract_error_message(result) -> str:
+        """Extract the most informative error message from a BackendEvalResult.
+
+        Prefers rank-level error messages (which contain stack traces and
+        correctness details) over the top-level error string.
+        """
+        # Try rank-level errors first — they have the real details.
+        ranks = result.summary_rank0.get("ranks", [])
+        rank_errors = []
+        for r in ranks:
+            if isinstance(r, dict) and r.get("error"):
+                rank_errors.append(f"rank {r.get('rank', '?')}: {r['error']}")
+        if rank_errors:
+            # Show unique errors only to avoid repetition.
+            seen = set()
+            unique = []
+            for e in rank_errors:
+                # Normalize to just the error text (strip rank prefix for dedup).
+                key = e.split(": ", 1)[-1] if ": " in e else e
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(e)
+            return "; ".join(unique[:3])  # Cap at 3 unique errors.
+
+        # Fall back to top-level error.
+        return (
+            result.eval_feedback.get("error")
+            or result.summary_rank0.get("error")
+            or "unknown error"
+        )
+
+    def _collect_prior_kernels(
+        self,
+        problem_id: int,
+        history: list[dict],
+    ) -> list[IterationSnapshot]:
+        """Build the list of prior iteration kernel snapshots for this problem.
+
+        Each snapshot includes the actual code and its evaluation result,
+        following the Kernel Devin pattern where the LLM sees every prior
+        attempt so it can learn from the full trajectory.
+        """
+        snapshots: list[IterationSnapshot] = []
+        problem_snap_dir = self.snapshots_dir / f"problem_{problem_id}"
+
+        # Build a map of iteration -> history entry for this problem.
+        iter_entries: dict[int, dict] = {}
+        for entry in history:
+            if entry.get("problem_id") == problem_id and "iteration" in entry:
+                iter_entries[entry["iteration"]] = entry
+
+        # Walk snapshots in order.
+        if problem_snap_dir.exists():
+            snap_files = sorted(problem_snap_dir.glob("iter_*.py"))
+            for snap_file in snap_files:
+                # Parse iteration number from filename (iter_0_bootstrap.py, iter_1.py, etc.)
+                name = snap_file.stem  # e.g. "iter_0_bootstrap" or "iter_1"
+                parts = name.split("_")
+                try:
+                    iteration = int(parts[1])
+                except (IndexError, ValueError):
+                    continue
+
+                try:
+                    code = snap_file.read_text(encoding="utf-8")
+                except Exception:
+                    continue
+
+                entry = iter_entries.get(iteration, {})
+                snapshots.append(
+                    IterationSnapshot(
+                        iteration=iteration,
+                        code=code,
+                        eval_feedback=entry.get("candidate_feedback", {}),
+                        score=entry.get("score", 0.0),
+                        eval_failed=entry.get("eval_failed", False),
+                        eval_error=entry.get("eval_error", ""),
+                    )
+                )
+
+        return snapshots
+
     # ------------------------------------------------------------------
     # Evaluation
     # ------------------------------------------------------------------
@@ -274,7 +375,7 @@ class Optimizer:
             self._save_traces_for_iteration(iteration, problem.problem_id, reference, candidate)
 
             if self._is_eval_failure(candidate):
-                error_msg = candidate.eval_feedback.get("error", "unknown error")
+                error_msg = self._extract_error_message(candidate)
                 is_timeout = candidate.eval_feedback.get("is_timeout", False)
                 failure_kind = "timeout" if is_timeout else "error"
                 print(
@@ -298,7 +399,29 @@ class Optimizer:
                 )
                 continue
 
-            score = self.scorer.score(reference.summary_rank0, candidate.summary_rank0)
+            # Enrich candidate feedback with rank-level error details when
+            # the status is "error" (correctness failures like shape mismatches)
+            # so the LLM gets actionable error information.
+            candidate_feedback = dict(candidate.eval_feedback)
+            if candidate.eval_feedback.get("status") == "error":
+                error_detail = self._extract_error_message(candidate)
+                candidate_feedback["error"] = error_detail
+                # Mark correctness as failed since rank-level errors exist.
+                ranks = candidate.summary_rank0.get("ranks", [])
+                failed_ranks = [
+                    r.get("rank") for r in ranks
+                    if isinstance(r, dict) and r.get("status") == "error"
+                ]
+                candidate_feedback["correctness"] = {
+                    "all_ok": False,
+                    "failed_ranks": failed_ranks,
+                }
+
+            try:
+                score = self.scorer.score(reference.summary_rank0, candidate.summary_rank0)
+            except Exception:
+                # Scorer may fail if no aggregate timing data (all ranks errored).
+                score = 0.0
             scores.append(score)
             entries.append(
                 {
@@ -306,7 +429,7 @@ class Optimizer:
                     "reference_summary": reference.summary_rank0,
                     "candidate_summary": candidate.summary_rank0,
                     "reference_feedback": reference.eval_feedback,
-                    "candidate_feedback": candidate.eval_feedback,
+                    "candidate_feedback": candidate_feedback,
                     "score": score,
                 }
             )
@@ -369,7 +492,7 @@ class Optimizer:
         problem: ProblemConfig,
         history: list[dict],
         *,
-        failed_code: str = "",
+        prior_kernels: list[IterationSnapshot] | None = None,
     ) -> dict:
         candidate_file = self._candidate_file(problem.problem_id)
         current_code = candidate_file.read_text(encoding="utf-8")
@@ -377,9 +500,15 @@ class Optimizer:
         latest_feedback = latest.get("candidate_feedback", {})
         correctness = latest_feedback.get("correctness", {})
 
+        # Determine proposal mode: also check rank-level errors for correctness
+        # issues even when status is "error" (e.g. shape mismatches).
         if latest.get("eval_failed"):
             proposal_mode = "correctness_fix"
         elif not correctness.get("all_ok", True):
+            proposal_mode = "correctness_fix"
+        elif latest_feedback.get("status") == "error":
+            # Rank-level errors (shape mismatch, assertion errors) are
+            # correctness issues even though the status is "error".
             proposal_mode = "correctness_fix"
         else:
             proposal_mode = "perf_opt"
@@ -401,16 +530,19 @@ class Optimizer:
                 flush=True,
             )
 
+        # Filter history to this problem only for the memory summary.
+        problem_history = [h for h in history if h.get("problem_id") == problem.problem_id]
+
         ctx = ProposalContext(
             problem_id=problem.problem_id,
             candidate_file=candidate_file,
             current_code=current_code,
             latest_metrics=latest,
-            memory_summary=self.memory.summarize(history),
+            memory_summary=self.memory.summarize(problem_history),
             proposal_mode=proposal_mode,
             eval_feedback=latest_feedback,
             retrieved_docs=retrieved_docs,
-            failed_code=failed_code,
+            prior_kernels=prior_kernels,
         )
         proposal = self.proposer.propose(ctx)
         proposal["mode"] = proposal_mode
@@ -467,38 +599,38 @@ class Optimizer:
                 rollback = RollbackManager(candidate_file)
                 rollback.snapshot()
 
-                # Roll back after eval failures so we don't build on broken code.
+                # ── NO ROLLBACK on eval failure ──
+                # Instead of rolling back, we keep the current (possibly broken)
+                # code and pass the LLM the full history of prior kernels + eval
+                # results so it can learn from its mistakes and iterate forward
+                # (Kernel Devin pattern).
                 latest_entry = next(
                     (e for e in reversed(eval_entries) if e["problem_id"] == p.problem_id),
                     None,
                 )
-                failed_code = ""
                 if latest_entry and latest_entry.get("eval_failed"):
                     failure_kind = latest_entry.get("eval_failure_kind", "error")
-                    # Capture the code that failed BEFORE rolling back so
-                    # the LLM can see exactly what it tried.
-                    try:
-                        failed_code = candidate_file.read_text(encoding="utf-8")
-                    except Exception:
-                        failed_code = ""
                     print(
-                        f"[optimizer] Rolling back problem {p.problem_id} after "
-                        f"eval {failure_kind} before re-proposing.",
+                        f"[optimizer] Eval {failure_kind} for problem {p.problem_id} — "
+                        f"keeping current code and passing full history to LLM.",
                         flush=True,
                     )
-                    rollback.rollback()
                     self.logger.append(
                         {
                             "iteration": iteration,
-                            "event": "rollback_after_eval_failure",
+                            "event": "eval_failure_no_rollback",
                             "problem_id": p.problem_id,
                             "eval_failure_kind": failure_kind,
                             "eval_error": latest_entry.get("eval_error", ""),
                         }
                     )
-                    rollback.snapshot()
 
-                proposal = self._proposal_for_problem(p, history, failed_code=failed_code)
+                # Collect all prior kernel snapshots for this problem.
+                prior_kernels = self._collect_prior_kernels(p.problem_id, history)
+
+                proposal = self._proposal_for_problem(
+                    p, history, prior_kernels=prior_kernels,
+                )
                 cycle_event = (
                     "perf_opt_cycle"
                     if proposal.get("mode", "perf_opt") == "perf_opt"

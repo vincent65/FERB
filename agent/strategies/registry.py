@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agent.config import PromptConfig
-from agent.openai_client import OpenAIPatchClient
+from agent.llm_client import LLMPatchClient
 from agent.strategies.memory.best_so_far import BestSoFarMemory
 from agent.strategies.proposers.single_shot import SingleShotProposer
 from agent.strategies.scorers.speedup_mean import SpeedupMeanScorer
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 def make_proposer(
     name: str,
-    openai_client: OpenAIPatchClient,
+    openai_client: LLMPatchClient,
     prompt_config: PromptConfig,
     retriever: LLMRetriever | None = None,
 ):

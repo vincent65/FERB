@@ -1,5 +1,5 @@
 name: problem6_optimization
-max_iterations: 10
+max_iterations: 4
 early_stop_speedup: 1.5
 seed_from_backend: triton
 candidate_dir: solutions_agent
@@ -18,8 +18,8 @@ eval:
   measure_iters: 2
   profile: true
   download: true
-  eval_timeout_s: 600
-  worker_timeout_s: 480
+  eval_timeout_s: 300
+  worker_timeout_s: 240
 
 openai:
   model: gpt-5
@@ -38,6 +38,8 @@ prompts:
     Problem: {problem_id}
     Candidate file: {candidate_file}
     Mode: performance_optimization
+    You are iteratively improving this kernel. Study the prior kernel history
+    appended below to understand what approaches have been tried and their results.
 
     Recent memory summary:
     {memory_summary}
@@ -48,7 +50,7 @@ prompts:
     Latest evaluation feedback:
     {eval_feedback}
 
-    Current candidate code:
+    Current candidate code (this is what was just evaluated):
     ```python
     {current_code}
     ```
@@ -62,8 +64,15 @@ prompts:
     Candidate file: {candidate_file}
     Mode: correctness_fix
 
-    The latest evaluation indicates correctness mismatch. Prioritize correctness first.
+    The latest evaluation indicates correctness issues or errors.
+    Prioritize making candidate outputs match reference outputs.
     Only add optimization changes that do not risk output mismatch.
+
+    IMPORTANT: Study the prior kernel history carefully. The current code
+    produced the errors shown in eval_feedback. Do NOT revert to a simpler
+    fallback — instead, fix the specific issue in the current approach.
+    If a prior iteration was correct but slow, consider building on that
+    version while fixing the current bug.
 
     Recent memory summary:
     {memory_summary}
@@ -74,7 +83,7 @@ prompts:
     Latest evaluation feedback:
     {eval_feedback}
 
-    Current candidate code:
+    Current candidate code (this is what was just evaluated):
     ```python
     {current_code}
     ```

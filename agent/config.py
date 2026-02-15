@@ -34,6 +34,21 @@ class EvalConfig:
 
 @dataclass
 class OpenAIConfig:
+    """LLM provider configuration.
+
+    Supports both OpenAI and Anthropic (Claude) via the ``provider`` field.
+    Kept as ``OpenAIConfig`` for backward compatibility but works with any
+    supported provider.  In YAML you can use either ``openai:`` or ``llm:``
+    as the config key.
+
+    Example (Anthropic)::
+
+        llm:
+          provider: anthropic
+          model: claude-sonnet-4-5-20250929
+          temperature: 0.2
+    """
+    provider: str = "openai"
     model: str = "gpt-5"
     temperature: float = 0.2
 
@@ -54,14 +69,16 @@ class PromptConfig:
         "Problem: {problem_id}\n"
         "Candidate file: {candidate_file}\n\n"
         "Mode: performance_optimization\n"
-        "Focus on improving runtime while preserving correctness.\n\n"
+        "Focus on improving runtime while preserving correctness.\n"
+        "You are iteratively improving this kernel. Study the prior kernel history "
+        "below to understand what approaches have been tried and their results.\n\n"
         "Recent memory summary:\n"
         "{memory_summary}\n\n"
         "Relevant NVSHMEM documentation:\n"
         "{retrieved_docs}\n\n"
         "Latest evaluation feedback:\n"
         "{eval_feedback}\n\n"
-        "Current candidate code:\n"
+        "Current candidate code (this is what was just evaluated):\n"
         "```python\n"
         "{current_code}\n"
         "```\n\n"
@@ -74,16 +91,21 @@ class PromptConfig:
         "Problem: {problem_id}\n"
         "Candidate file: {candidate_file}\n\n"
         "Mode: correctness_fix\n"
-        "The most recent evaluation indicates correctness issues. "
+        "The most recent evaluation indicates correctness issues or errors. "
         "Prioritize making candidate outputs match reference outputs. "
         "Only apply safe performance tweaks after correctness is restored.\n\n"
+        "IMPORTANT: Study the prior kernel history carefully. The current code "
+        "produced the errors shown in eval_feedback. Do NOT revert to a simpler "
+        "fallback — instead, fix the specific issue in the current approach. "
+        "If a prior iteration was correct but slow, consider building on that "
+        "version while fixing the current bug.\n\n"
         "Recent memory summary:\n"
         "{memory_summary}\n\n"
         "Relevant NVSHMEM documentation:\n"
         "{retrieved_docs}\n\n"
         "Latest evaluation feedback:\n"
         "{eval_feedback}\n\n"
-        "Current candidate code:\n"
+        "Current candidate code (this is what was just evaluated):\n"
         "```python\n"
         "{current_code}\n"
         "```\n\n"
@@ -162,7 +184,9 @@ class ExperimentConfig:
 
         problems = [ProblemConfig(**p) for p in raw.get("problems", [])]
         eval_cfg = EvalConfig(**cls._get(raw, "eval", {}))
-        openai_cfg = OpenAIConfig(**cls._get(raw, "openai", {}))
+        # Accept either "llm:" (preferred) or "openai:" (legacy) config key.
+        llm_raw = cls._get(raw, "llm", None) or cls._get(raw, "openai", {})
+        openai_cfg = OpenAIConfig(**llm_raw)
         prompt_raw = cls._get(raw, "prompts", {})
         if isinstance(prompt_raw, dict):
             # Accept legacy field names and map to new contracts.

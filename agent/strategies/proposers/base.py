@@ -6,6 +6,17 @@ from typing import Protocol
 
 
 @dataclass
+class IterationSnapshot:
+    """A single prior iteration's kernel code + evaluation result."""
+    iteration: int
+    code: str
+    eval_feedback: dict
+    score: float
+    eval_failed: bool = False
+    eval_error: str = ""
+
+
+@dataclass
 class ProposalContext:
     problem_id: int
     candidate_file: Path
@@ -16,6 +27,8 @@ class ProposalContext:
     eval_feedback: dict
     retrieved_docs: str = ""  # RLM-retrieved documentation context.
     failed_code: str = ""  # Code that was rolled back (if any), so the LLM knows what it tried.
+    # Full history of prior iterations' kernel code + eval info (Kernel Devin pattern).
+    prior_kernels: list["IterationSnapshot"] | None = None
 
 
 class Proposer(Protocol):

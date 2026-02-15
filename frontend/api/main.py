@@ -8,7 +8,7 @@ from .ws.handler import router as ws_router
 
 app = FastAPI(
     title="EcholoKernel API",
-    description="Backend API for the Triton Kernel Optimizer dashboard",
+    description="Backend API for the EcholoKernel dashboard",
     version="1.0.0",
 )
 

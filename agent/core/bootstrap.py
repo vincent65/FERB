@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agent.config import PromptConfig
-from agent.openai_client import OpenAIPatchClient
+from agent.llm_client import LLMPatchClient
 
 
 @dataclass
@@ -24,7 +24,7 @@ class BootstrapStage:
         candidate_dir: str,
         seed_from_backend: str,
         prompt_config: PromptConfig,
-        openai_client: OpenAIPatchClient,
+        openai_client: LLMPatchClient,
         rlm_retriever: object | None = None,
     ):
         self.repo_root = repo_root

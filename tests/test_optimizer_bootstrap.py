@@ -9,7 +9,7 @@ from agent.eval.modal_evaluator import ModalEvaluator
 
 
 class OptimizerBootstrapTests(unittest.TestCase):
-    @patch("agent.core.optimizer.OpenAIPatchClient")
+    @patch("agent.core.optimizer.LLMPatchClient")
     def test_seed_candidate_bootstraps_when_seed_file_missing(self, mock_client_cls):
         fake_client = Mock()
         fake_client.generate_initial_candidate.return_value = (
@@ -50,7 +50,7 @@ class OptimizerBootstrapTests(unittest.TestCase):
             self.assertEqual(fake_client.generate_initial_candidate.call_count, 1)
             self.assertEqual(result.event, "bootstrap_generated")
 
-    @patch("agent.core.optimizer.OpenAIPatchClient")
+    @patch("agent.core.optimizer.LLMPatchClient")
     def test_seed_candidate_uses_seed_file_when_available(self, mock_client_cls):
         fake_client = Mock()
         mock_client_cls.return_value = fake_client
@@ -79,7 +79,7 @@ class OptimizerBootstrapTests(unittest.TestCase):
             self.assertEqual(fake_client.generate_initial_candidate.call_count, 0)
             self.assertEqual(result.event, "bootstrap_seed_copy")
 
-    @patch("agent.core.optimizer.OpenAIPatchClient")
+    @patch("agent.core.optimizer.LLMPatchClient")
     def test_optimizer_routes_correctness_fix_mode_and_logs_cycle_event(self, mock_client_cls):
         fake_client = Mock()
         mock_client_cls.return_value = fake_client
