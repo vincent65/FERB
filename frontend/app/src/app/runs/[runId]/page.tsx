@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useCallback, useRef, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,16 +11,29 @@ import { useRunStore } from "@/stores/run-store";
 import { IterationHistory } from "@/components/iteration-history";
 import { CodeViewer } from "@/components/code-viewer";
 import { BottomPanel } from "@/components/bottom-panel";
+import { api } from "@/lib/api-client";
 import type { WSEvent } from "@/lib/types";
 
-function ConnectionIndicator({ connected }: { connected: boolean }) {
+function ConnectionIndicator({
+  connected,
+  isDemo,
+}: {
+  connected: boolean;
+  isDemo?: boolean;
+}) {
+  if (isDemo) {
+    return (
+      <div className="flex items-center gap-2 text-xs">
+        <div className="w-2 h-2 rounded-full bg-accent-green animate-pulse-live" />
+        <span className="text-accent-green">OPTIMIZING</span>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-2 text-xs">
       <div
         className={`w-2 h-2 rounded-full ${
-          connected
-            ? "bg-accent-green animate-breathe"
-            : "bg-text-muted"
+          connected ? "bg-accent-green animate-breathe" : "bg-text-muted"
         }`}
       />
       <span className={connected ? "text-accent-green" : "text-text-muted"}>
@@ -30,9 +43,38 @@ function ConnectionIndicator({ connected }: { connected: boolean }) {
   );
 }
 
+function DemoProgressBar({
+  current,
+  total,
+}: {
+  current: number;
+  total: number;
+}) {
+  const pct = total > 0 ? (current / total) * 100 : 0;
+  return (
+    <div className="flex items-center gap-3 px-5 py-2 border-b border-border-subtle bg-bg-glass shrink-0">
+      <span className="label-muted text-[10px] shrink-0">PROGRESS</span>
+      <div className="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+        <motion.div
+          className="h-full bg-accent-green rounded-full"
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+        />
+      </div>
+      <span className="text-accent-green text-xs font-bold">
+        {current}/{total}
+      </span>
+    </div>
+  );
+}
+
 export default function RunDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const runId = params.runId as string;
+  const isDemoParam = searchParams.get("demo") === "true";
+  const delayMs = Number(searchParams.get("delay")) || 30000;
   const queryClient = useQueryClient();
 
   const { data: run, isLoading: runLoading } = useRunDetail(runId);
@@ -44,10 +86,17 @@ export default function RunDetailPage() {
     setActiveProblemId,
   } = useRunStore();
 
-  // WebSocket for live updates
+  // Demo simulation state
+  const [isDemo, setIsDemo] = useState(isDemoParam);
+  const [demoRunning, setDemoRunning] = useState(false);
+  const [demoIteration, setDemoIteration] = useState(0);
+  const [demoTotal, setDemoTotal] = useState(10);
+  const demoTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const demoRunningRef = useRef(false);
+
+  // WebSocket for live updates (non-demo)
   const handleWSEvent = useCallback(
     (event: WSEvent) => {
-      // Refetch data when new events come in
       if (event.type === "iteration_event" || event.type === "llm_proposal") {
         queryClient.invalidateQueries({ queryKey: ["iterations", runId] });
         queryClient.invalidateQueries({ queryKey: ["run", runId] });
@@ -62,9 +111,78 @@ export default function RunDetailPage() {
 
   const { connected } = useWebSocket({
     runId,
-    enabled: run?.status === "running",
+    enabled: run?.status === "running" && !isDemo,
     onEvent: handleWSEvent,
   });
+
+  // Demo: auto-advance iterations
+  const advanceDemoIteration = useCallback(async () => {
+    if (!demoRunningRef.current) return;
+
+    try {
+      const result = await api.advanceDemo(runId);
+
+      if (result.status === "complete" || result.is_complete) {
+        setDemoRunning(false);
+        demoRunningRef.current = false;
+        setDemoIteration(result.iteration || demoTotal);
+
+        // Refetch everything
+        queryClient.invalidateQueries({ queryKey: ["iterations", runId] });
+        queryClient.invalidateQueries({ queryKey: ["run", runId] });
+        queryClient.invalidateQueries({ queryKey: ["snapshots"] });
+        queryClient.invalidateQueries({ queryKey: ["snapshot-code"] });
+        return;
+      }
+
+      const newIter = result.iteration;
+      setDemoIteration(newIter);
+      setDemoTotal(result.total);
+
+      // Refetch data so UI updates
+      queryClient.invalidateQueries({ queryKey: ["iterations", runId] });
+      queryClient.invalidateQueries({ queryKey: ["run", runId] });
+      queryClient.invalidateQueries({ queryKey: ["snapshots"] });
+      queryClient.invalidateQueries({ queryKey: ["snapshot-code"] });
+
+      // Auto-select the new iteration
+      setSelectedIteration(newIter);
+
+      // Schedule next iteration
+      if (!result.is_complete && demoRunningRef.current) {
+        demoTimerRef.current = setTimeout(advanceDemoIteration, delayMs);
+      }
+    } catch (e) {
+      console.error("Demo advance failed:", e);
+      setDemoRunning(false);
+      demoRunningRef.current = false;
+    }
+  }, [runId, queryClient, setSelectedIteration, demoTotal, delayMs]);
+
+  // Start demo auto-play when page loads with demo=true
+  useEffect(() => {
+    if (isDemoParam && !demoRunning && !demoRunningRef.current) {
+      // Small delay to let the page render first
+      const startTimer = setTimeout(() => {
+        setDemoRunning(true);
+        demoRunningRef.current = true;
+        setIsDemo(true);
+        advanceDemoIteration();
+      }, 1500);
+
+      return () => clearTimeout(startTimer);
+    }
+  }, [isDemoParam]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      demoRunningRef.current = false;
+      if (demoTimerRef.current) {
+        clearTimeout(demoTimerRef.current);
+      }
+    };
+  }, []);
 
   // Auto-select first problem and latest iteration
   useEffect(() => {
@@ -74,11 +192,11 @@ export default function RunDetailPage() {
   }, [run?.problems, activeProblemId, setActiveProblemId]);
 
   useEffect(() => {
-    if (iterations?.length && selectedIteration === null) {
+    if (iterations?.length && selectedIteration === null && !isDemo) {
       const lastIter = iterations[iterations.length - 1];
       setSelectedIteration(lastIter.iteration);
     }
-  }, [iterations, selectedIteration, setSelectedIteration]);
+  }, [iterations, selectedIteration, setSelectedIteration, isDemo]);
 
   if (runLoading) {
     return (
@@ -105,6 +223,7 @@ export default function RunDetailPage() {
   }
 
   const problemId = activeProblemId ?? run.problems[0] ?? 0;
+  const showDemoIndicator = isDemo && (demoRunning || demoIteration > 0);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
@@ -142,20 +261,20 @@ export default function RunDetailPage() {
               </h1>
               <span
                 className={`status-pill ${
-                  run.status === "running"
+                  demoRunning || run.status === "running"
                     ? "bg-accent-red/15 text-accent-red"
                     : "bg-accent-green/15 text-accent-green"
                 }`}
               >
-                {run.status === "running" && (
+                {(demoRunning || run.status === "running") && (
                   <span className="w-1.5 h-1.5 rounded-full bg-accent-red animate-pulse-live" />
                 )}
-                {run.status.toUpperCase()}
+                {demoRunning
+                  ? "RUNNING"
+                  : run.status.toUpperCase()}
               </span>
             </div>
-            <p className="text-text-muted text-[10px]">
-              {run.id}
-            </p>
+            <p className="text-text-muted text-[10px]">{run.id}</p>
           </div>
         </div>
 
@@ -168,28 +287,40 @@ export default function RunDetailPage() {
                 {selectedIteration ?? "—"}
               </span>
               <span className="text-text-muted text-sm mx-1">/</span>
-              <span className="text-sm">{iterations?.length ?? 0}</span>
+              <span className="text-sm">
+                {isDemo ? demoTotal : (iterations?.length ?? 0)}
+              </span>
             </p>
           </div>
 
-          {/* WS connection */}
-          {run.status === "running" && (
-            <ConnectionIndicator connected={connected} />
+          {/* Connection / Demo indicator */}
+          {showDemoIndicator ? (
+            <ConnectionIndicator connected={false} isDemo={demoRunning} />
+          ) : (
+            run.status === "running" && (
+              <ConnectionIndicator connected={connected} />
+            )
           )}
         </div>
       </motion.header>
+
+      {/* Demo progress bar */}
+      {showDemoIndicator && demoRunning && (
+        <DemoProgressBar current={demoIteration} total={demoTotal} />
+      )}
 
       {/* Problem tabs */}
       {run.problems.length > 1 && (
         <div className="flex items-center gap-1 px-4 py-2 border-b border-border-subtle bg-bg-deep/50 shrink-0">
           {run.problems.map((pid) => {
-            const bestScore = iterations
-              ?.filter((i) => i.problems[String(pid)]?.score)
-              .reduce(
-                (best, i) =>
-                  Math.max(best, i.problems[String(pid)]?.score ?? 0),
-                0
-              ) ?? 0;
+            const bestScore =
+              iterations
+                ?.filter((i) => i.problems[String(pid)]?.score)
+                .reduce(
+                  (best, i) =>
+                    Math.max(best, i.problems[String(pid)]?.score ?? 0),
+                  0
+                ) ?? 0;
 
             return (
               <button
@@ -219,7 +350,7 @@ export default function RunDetailPage() {
         <div className="border-r border-border-subtle bg-bg-deep/30">
           <IterationHistory
             iterations={iterations ?? []}
-            maxIterations={undefined}
+            maxIterations={isDemo ? demoTotal : undefined}
           />
         </div>
 

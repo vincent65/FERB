@@ -167,6 +167,19 @@ def get_run_detail(run_id: str) -> dict[str, Any] | None:
         except IOError:
             pass
 
+    # For demo runs with no iterations yet, infer problems from snapshot dirs
+    if not detail["problems"]:
+        snapshots_dir = run_dir / "snapshots"
+        if snapshots_dir.exists():
+            for d in snapshots_dir.iterdir():
+                if d.is_dir() and d.name.startswith("problem_"):
+                    try:
+                        pid = int(d.name.replace("problem_", ""))
+                        detail["problems"].append(pid)
+                    except ValueError:
+                        pass
+            detail["problems"] = sorted(detail["problems"])
+
     return detail
 
 
@@ -370,3 +383,47 @@ def list_experiments() -> list[dict[str, Any]]:
         experiments.append(exp_info)
 
     return experiments
+
+
+def get_experiment_detail(filename: str) -> dict[str, Any] | None:
+    """Get full experiment config as a dictionary."""
+    import yaml
+
+    exp_dir = get_experiments_dir()
+    filepath = exp_dir / filename
+    if not filepath.exists():
+        return None
+
+    try:
+        with open(filepath) as f:
+            config = yaml.safe_load(f)
+        config["filename"] = filename
+        config["path"] = str(filepath)
+        return config
+    except Exception:
+        return None
+
+
+def is_demo_run(run_id: str) -> bool:
+    """Check if a run is a demo run."""
+    run_dir = get_runs_dir() / run_id
+    manifest_path = run_dir / "demo_manifest.json"
+    if manifest_path.exists():
+        return True
+    summary_path = run_dir / "summary.json"
+    if summary_path.exists():
+        try:
+            with open(summary_path) as f:
+                summary = json.load(f)
+            return summary.get("is_demo", False)
+        except (json.JSONDecodeError, IOError):
+            pass
+    state_path = run_dir / "run_state.json"
+    if state_path.exists():
+        try:
+            with open(state_path) as f:
+                state = json.load(f)
+            return state.get("is_demo", False)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return False

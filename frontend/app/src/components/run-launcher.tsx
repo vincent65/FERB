@@ -27,7 +27,7 @@ export function RunLauncher() {
   };
 
   return (
-    <div className="mb-8">
+    <div className="inline-block">
       <button
         onClick={() => setOpen(!open)}
         className="pill-btn pill-btn-primary flex items-center gap-2"
@@ -45,7 +45,7 @@ export function RunLauncher() {
         >
           <polygon points="5 3 19 12 5 21 5 3" />
         </svg>
-        Start Optimization
+        Quick Launch
       </button>
 
       <AnimatePresence>
@@ -54,16 +54,16 @@ export function RunLauncher() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden"
+            className="overflow-hidden absolute z-10 mt-2"
           >
-            <div className="glass-card p-5 mt-4">
-              <h3 className="label-muted mb-3">Select Experiment Config</h3>
-              <div className="flex gap-3 flex-wrap mb-4">
+            <div className="glass-card p-5 min-w-[340px]">
+              <h3 className="label-muted mb-3">Select Existing Config</h3>
+              <div className="flex gap-2 flex-wrap mb-4">
                 {experiments?.map((exp) => (
                   <button
                     key={exp.filename}
                     onClick={() => setSelectedConfig(exp.filename)}
-                    className={`pill-btn ${
+                    className={`pill-btn text-xs py-1.5 px-3 ${
                       selectedConfig === exp.filename
                         ? "bg-accent-green/20 text-accent-green border border-accent-green/40"
                         : "pill-btn-ghost"

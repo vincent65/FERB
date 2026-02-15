@@ -75,6 +75,15 @@ export const api = {
 
   // Experiments
   listExperiments: () => fetchJSON<ExperimentConfig[]>("/api/experiments"),
+  getExperimentDetail: (filename: string) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fetchJSON<any>(`/api/experiments/${filename}`),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  saveExperiment: (data: any) =>
+    postJSON<{ filename: string; path: string; status: string }>(
+      "/api/experiments/save",
+      data
+    ),
 
   // Launch/stop
   launchRun: (config: string) =>
@@ -84,6 +93,18 @@ export const api = {
     ),
   stopRun: (runId: string) =>
     postJSON<{ status: string; run_id: string }>(`/api/runs/${runId}/stop`),
+
+  // Demo
+  launchDemo: (name: string) =>
+    postJSON<{ run_id: string; status: string; total_iterations: number; delay_ms: number }>(
+      "/api/experiments/launch-demo",
+      { name }
+    ),
+  advanceDemo: (runId: string) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    postJSON<any>(`/api/runs/${runId}/demo/advance`),
+  isDemoRun: (runId: string) =>
+    fetchJSON<{ is_demo: boolean }>(`/api/runs/${runId}/is-demo`),
 
   // WebSocket URL
   getWSUrl: (runId: string) => {

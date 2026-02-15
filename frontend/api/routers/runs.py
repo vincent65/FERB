@@ -11,7 +11,9 @@ from ..services.run_reader import (
     get_snapshots,
     get_trace,
     list_runs,
+    is_demo_run,
 )
+from ..services.demo_runner import DemoRunner
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
@@ -77,3 +79,22 @@ async def api_get_trace(run_id: str, problem_id: int, iteration: int, rank: int,
     if trace is None:
         raise HTTPException(status_code=404, detail="Trace not found")
     return trace
+
+
+@router.get("/{run_id}/is-demo")
+async def api_is_demo(run_id: str):
+    """Check if a run is a demo simulation."""
+    return {"is_demo": is_demo_run(run_id) or DemoRunner.is_demo_active(run_id)}
+
+
+@router.post("/{run_id}/demo/advance")
+async def api_demo_advance(run_id: str):
+    """Advance demo simulation by one iteration."""
+    if not DemoRunner.is_demo_active(run_id):
+        # Try to restore from disk (e.g. after server restart)
+        if not DemoRunner.try_restore_demo(run_id):
+            return {"status": "complete", "run_id": run_id, "is_complete": True}
+    result = DemoRunner.get_next_iteration_data(run_id)
+    if result is None:
+        return {"status": "complete", "run_id": run_id, "is_complete": True}
+    return result
